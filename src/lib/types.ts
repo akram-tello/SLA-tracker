@@ -78,4 +78,66 @@ export interface OrderFilters {
   order_no?: string;
   brand?: string;
   country?: string;
+}
+
+// ETL Configuration and Discovery Types
+export interface TableDiscovery {
+  source_table: string;
+  target_table: string;
+  brand_code: string;
+  country_code: string;
+  brand_name: string;
+  exists_in_target: boolean;
+  last_sync?: Date;
+  record_count?: number;
+}
+
+export interface ColumnMapping {
+  source_column: string;
+  target_column: string;
+  data_type: string;
+  is_required: boolean;
+  default_value?: string | number | Date;
+  transformation?: string; // SQL expression for transformation
+}
+
+export interface ETLConfig {
+  source_table: string;
+  target_table: string;
+  brand_code: string;
+  country_code: string;
+  brand_name: string;
+  column_mappings: ColumnMapping[];
+  batch_size: number;
+  sync_strategy: 'full' | 'incremental';
+  date_filter_column?: string;
+  sync_window_days: number;
+}
+
+export interface ETLJobOptions {
+  batch_size?: number;
+  max_records?: number;
+  sync_strategy?: 'full' | 'incremental';
+  sync_window_days?: number;
+}
+
+export interface ETLPaginationResult {
+  current_batch: number;
+  total_batches: number;
+  records_processed: number;
+  has_more: boolean;
+}
+
+export interface BrandConfig {
+  brand_code: string;
+  brand_name: string;
+  source_table_pattern: string;
+  target_table_pattern: string;
+}
+
+export interface ETLJobResult {
+  success: boolean;
+  processed: number;
+  errors: string[];
+  duration: number;
 } 

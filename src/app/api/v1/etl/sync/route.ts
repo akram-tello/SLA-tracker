@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { ETLService, ETLJobResult } from '@/lib/etl';
+import { ETLService } from '@/lib/etl';
 
 export async function POST(request: NextRequest) {
   try {
@@ -8,7 +8,12 @@ export async function POST(request: NextRequest) {
     const countryCode = searchParams.get('country') || 'all';
 
     const etlService = new ETLService();
-    const results: Array<{ brand: string; country: string; result: ETLJobResult }> = [];
+
+    const results: Array<{ 
+      brand: string; 
+      country: string; 
+      result: Awaited<ReturnType<typeof etlService.syncOrderData>>; 
+    }> = [];
 
     if (brandCode === 'all' || countryCode === 'all') {
       // Sync all brand-country combinations
@@ -26,7 +31,7 @@ export async function POST(request: NextRequest) {
     } else {
       // Sync specific brand-country combination
       console.log(`Starting ETL sync for ${brandCode}_${countryCode}`);
-      const result = await etlService.syncOrderData(brandCode, countryCode);
+      const result = await etlService.syncOrderData(brandCode, countryCode, undefined);
       results.push({
         brand: brandCode,
         country: countryCode,
@@ -41,11 +46,20 @@ export async function POST(request: NextRequest) {
       failed_jobs: results.filter(r => !r.result.success).length,
       total_processed: results.reduce((sum, r) => sum + r.result.processed, 0),
       total_duration: results.reduce((sum, r) => sum + r.result.duration, 0),
+      pagination_summary: {
+        jobs_with_more_data: results.filter(r => r.result.pagination?.has_more).length,
+        total_batches_processed: results.reduce((sum, r) => sum + (r.result.pagination?.current_batch || 0), 0),
+        total_batches_remaining: results.reduce((sum, r) => {
+          const pagination = r.result.pagination;
+          return sum + (pagination ? pagination.total_batches - pagination.current_batch : 0);
+        }, 0)
+      },
       results: results.map(r => ({
         brand_country: `${r.brand}_${r.country}`,
         success: r.result.success,
         processed: r.result.processed,
         duration_ms: r.result.duration,
+        pagination: r.result.pagination,
         errors: r.result.errors
       }))
     };
@@ -54,7 +68,11 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       message: 'ETL sync completed',
-      summary
+      summary,
+      usage: {
+        sync_all: 'POST /api/v1/etl/sync',
+        sync_specific: 'POST /api/v1/etl/sync?brand=vs&country=my'
+      }
     });
 
   } catch (error) {
@@ -74,13 +92,17 @@ export async function GET() {
   try {
     const etlService = new ETLService();
     const combinations = await etlService.getAllBrandCountryCombinations();
+    // const discoveries = await etlService.discoverTables();
 
     return NextResponse.json({
       message: 'ETL service status',
       available_combinations: combinations,
+      // discovered_tables: discoveries,
       usage: {
         sync_all: 'POST /api/v1/etl/sync',
-        sync_specific: 'POST /api/v1/etl/sync?brand=VS&country=MY'
+        sync_specific: 'POST /api/v1/etl/sync?brand=vs&country=my',
+        discover_tables: 'GET /api/v1/etl/discover',
+        prepare_tables: 'POST /api/v1/etl/discover'
       }
     });
 
