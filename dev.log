@@ -1,0 +1,122 @@
+
+> sla-tracker@1.0.0 dev
+> next dev
+
+   ▲ Next.js 15.1.6
+   - Local:        http://localhost:3000
+   - Network:      http://10.1.20.237:3000
+   - Environments: .env
+
+ ✓ Starting...
+ ✓ Ready in 1627ms
+ ○ Compiling /api/v1/orders ...
+ ✓ Compiled /api/v1/orders in 569ms (474 modules)
+Orders API error: Error: Incorrect arguments to mysqld_stmt_execute
+    at execute (src/app/api/v1/orders/route.ts:130:32)
+  128 |     const offset = (filters.page - 1) * filters.limit;
+  129 |     const dataQuery = `${unionQueries} ORDER BY order_date DESC LIMIT ? OFFSET ?`;
+> 130 |     const [dataRows] = await db.execute(dataQuery, [...params, filters.limit, offset]);
+      |                                ^
+  131 |
+  132 |     const orders = (dataRows as Record<string, string | number | Date | null>[]).map(row => ({
+  133 |       order_no: String(row.order_no), {
+  code: 'ER_WRONG_ARGUMENTS',
+  errno: 1210,
+  sql: '\n' +
+    '      SELECT \n' +
+    '        order_no, order_status, shipping_status, order_date,\n' +
+    '        processing_time, shipped_time, delivered_time,\n' +
+    '        processed_tat, shipped_tat, delivered_tat,\n' +
+    '        brand_name, country_code,\n' +
+    '        CASE\n' +
+    '          WHEN EXISTS (\n' +
+    '            SELECT 1 FROM tat_config t \n' +
+    '            WHERE t.brand_name = o.brand_name \n' +
+    '            AND t.country_code = o.country_code\n' +
+    '            AND (\n' +
+    '              (o.processed_tat IS NOT NULL AND o.processed_tat > t.processed_tat) OR\n' +
+    '              (o.shipped_tat IS NOT NULL AND o.shipped_tat > t.shipped_tat) OR\n' +
+    '              (o.delivered_tat IS NOT NULL AND o.delivered_tat > t.delivered_tat)\n' +
+    '            )\n' +
+    "          ) THEN 'Breached'\n" +
+    '          WHEN EXISTS (\n' +
+    '            SELECT 1 FROM tat_config t \n' +
+    '            WHERE t.brand_name = o.brand_name \n' +
+    '            AND t.country_code = o.country_code\n' +
+    '            AND (\n' +
+    '              (o.processed_tat IS NOT NULL AND o.processed_tat > t.processed_tat * t.risk_pct / 100) OR\n' +
+    '              (o.shipped_tat IS NOT NULL AND o.shipped_tat > t.shipped_tat * t.risk_pct / 100) OR\n' +
+    '              (o.delivered_tat IS NOT NULL AND o.delivered_tat > t.delivered_tat * t.risk_pct / 100)\n' +
+    '            )\n' +
+    "          ) THEN 'At Risk'\n" +
+    "          ELSE 'On Time'\n" +
+    '        END as sla_status\n' +
+    '      FROM orders_VS_MY o\n' +
+    '      \n' +
+    '     ORDER BY order_date DESC LIMIT ? OFFSET ?',
+  sqlState: 'HY000',
+  sqlMessage: 'Incorrect arguments to mysqld_stmt_execute'
+}
+ GET /api/v1/orders 500 in 809ms
+ ✓ Compiled in 264ms (225 modules)
+ ✓ Compiled in 65ms (225 modules)
+Orders API error: Error: Incorrect arguments to mysqld_stmt_execute
+    at execute (src/app/api/v1/orders/route.ts:141:32)
+  139 |     }
+  140 |     dataParams.push(filters.limit, offset);
+> 141 |     const [dataRows] = await db.execute(dataQuery, dataParams);
+      |                                ^
+  142 |
+  143 |     const orders = (dataRows as Record<string, string | number | Date | null>[]).map(row => ({
+  144 |       order_no: String(row.order_no), {
+  code: 'ER_WRONG_ARGUMENTS',
+  errno: 1210,
+  sql: '\n' +
+    '      SELECT \n' +
+    '        order_no, order_status, shipping_status, order_date,\n' +
+    '        processing_time, shipped_time, delivered_time,\n' +
+    '        processed_tat, shipped_tat, delivered_tat,\n' +
+    '        brand_name, country_code,\n' +
+    '        CASE\n' +
+    '          WHEN EXISTS (\n' +
+    '            SELECT 1 FROM tat_config t \n' +
+    '            WHERE t.brand_name = o.brand_name \n' +
+    '            AND t.country_code = o.country_code\n' +
+    '            AND (\n' +
+    '              (o.processed_tat IS NOT NULL AND o.processed_tat > t.processed_tat) OR\n' +
+    '              (o.shipped_tat IS NOT NULL AND o.shipped_tat > t.shipped_tat) OR\n' +
+    '              (o.delivered_tat IS NOT NULL AND o.delivered_tat > t.delivered_tat)\n' +
+    '            )\n' +
+    "          ) THEN 'Breached'\n" +
+    '          WHEN EXISTS (\n' +
+    '            SELECT 1 FROM tat_config t \n' +
+    '            WHERE t.brand_name = o.brand_name \n' +
+    '            AND t.country_code = o.country_code\n' +
+    '            AND (\n' +
+    '              (o.processed_tat IS NOT NULL AND o.processed_tat > t.processed_tat * t.risk_pct / 100) OR\n' +
+    '              (o.shipped_tat IS NOT NULL AND o.shipped_tat > t.shipped_tat * t.risk_pct / 100) OR\n' +
+    '              (o.delivered_tat IS NOT NULL AND o.delivered_tat > t.delivered_tat * t.risk_pct / 100)\n' +
+    '            )\n' +
+    "          ) THEN 'At Risk'\n" +
+    "          ELSE 'On Time'\n" +
+    '        END as sla_status\n' +
+    '      FROM orders_VS_MY o\n' +
+    '      \n' +
+    '     ORDER BY order_date DESC LIMIT ? OFFSET ?',
+  sqlState: 'HY000',
+  sqlMessage: 'Incorrect arguments to mysqld_stmt_execute'
+}
+ GET /api/v1/orders 500 in 127ms
+ ✓ Compiled in 91ms (225 modules)
+ ✓ Compiled in 89ms (225 modules)
+ GET /api/v1/orders 200 in 77ms
+ ○ Compiling /orders ...
+ ✓ Compiled /orders in 1338ms (1035 modules)
+ GET /orders 200 in 1664ms
+ GET /api/v1/orders?page=1&limit=20 200 in 194ms
+ ○ Compiling / ...
+ ✓ Compiled / in 639ms (1851 modules)
+ GET / 200 in 777ms
+ ✓ Compiled /api/v1/dashboard/summary in 289ms (1853 modules)
+ GET /api/v1/dashboard/summary?from_date=2025-07-01&to_date=2025-07-08 200 in 471ms
+ GET /api/v1/dashboard/summary?from_date=2025-07-01&to_date=2025-07-08 200 in 10ms
