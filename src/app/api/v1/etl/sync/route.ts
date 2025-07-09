@@ -140,21 +140,14 @@ export async function POST(request: NextRequest) {
         selectFields.push(`UPPER('${country}') as country_code`);
         selectFields.push('NOW() as updated_at');
 
-        // Simple query - get all records
-        const query = `
-          SELECT ${selectFields.join(', ')}
-          FROM ${sourceTable}
-          ORDER BY ${availableColumns.includes('order_created_date_time') ? 'order_created_date_time' : 
-                      availableColumns.includes('created_at') ? 'created_at' : '1'} DESC
-        `;
+        // Get total count first
+        const countQuery = `SELECT COUNT(*) as total FROM ${sourceTable}`;
+        const [countResult] = await masterDb.execute(countQuery);
+        const totalRecords = (countResult as { total: number }[])[0].total;
+        
+        console.log(`Total records in ${sourceTable}: ${totalRecords}`);
 
-        console.log(`Executing query for ${sourceTable}:`, query);
-        const [sourceRows] = await masterDb.execute(query);
-        const rows = sourceRows as Record<string, string | number | Date | null>[];
-
-        console.log(`Found ${rows.length} rows in ${sourceTable}`);
-
-        if (rows.length === 0) {
+        if (totalRecords === 0) {
           results.push({
             brand,
             country,
@@ -164,25 +157,53 @@ export async function POST(request: NextRequest) {
           continue;
         }
 
-        // Insert the data
+        // Process in batches of 1000
+        const batchSize = 1000;
         let processed = 0;
-        for (const row of rows) {
-          try {
-            const columns = Object.keys(row);
-            const values = Object.values(row);
-            const placeholders = columns.map(() => '?').join(', ');
-            
-            const upsertQuery = `
-              INSERT INTO ${targetTable} (${columns.join(', ')})
-              VALUES (${placeholders})
-              ON DUPLICATE KEY UPDATE
-              ${columns.filter(col => col !== 'order_no').map(col => `${col} = VALUES(${col})`).join(', ')}
-            `;
+        let offset = 0;
 
-            await analyticsDb.execute(upsertQuery, values);
-            processed++;
-          } catch (error) {
-            console.warn(`Failed to insert row for ${row.order_no}:`, error);
+        while (offset < totalRecords) {
+          const batchQuery = `
+            SELECT ${selectFields.join(', ')}
+            FROM ${sourceTable}
+            ORDER BY ${availableColumns.includes('order_created_date_time') ? 'order_created_date_time' : 
+                        availableColumns.includes('created_at') ? 'created_at' : '1'} DESC
+            LIMIT ${batchSize} OFFSET ${offset}
+          `;
+
+          console.log(`Processing batch ${Math.floor(offset/batchSize) + 1}/${Math.ceil(totalRecords/batchSize)} for ${sourceTable}`);
+          
+          const [sourceRows] = await masterDb.execute(batchQuery);
+          const rows = sourceRows as Record<string, string | number | Date | null>[];
+
+          if (rows.length === 0) break;
+
+          // Insert batch data
+          for (const row of rows) {
+            try {
+              const columns = Object.keys(row);
+              const values = Object.values(row);
+              const placeholders = columns.map(() => '?').join(', ');
+              
+              const upsertQuery = `
+                INSERT INTO ${targetTable} (${columns.join(', ')})
+                VALUES (${placeholders})
+                ON DUPLICATE KEY UPDATE
+                ${columns.filter(col => col !== 'order_no').map(col => `${col} = VALUES(${col})`).join(', ')}
+              `;
+
+              await analyticsDb.execute(upsertQuery, values);
+              processed++;
+            } catch (error) {
+              console.warn(`Failed to insert row for ${row.order_no}:`, error);
+            }
+          }
+
+          offset += batchSize;
+          
+          // Small delay to prevent overwhelming the database
+          if (offset < totalRecords) {
+            await new Promise(resolve => setTimeout(resolve, 100));
           }
         }
 
@@ -254,37 +275,59 @@ export async function GET() {
 
     const sourceTableNames = (tables as { TABLE_NAME: string }[]).map(row => row.TABLE_NAME);
 
-    // For each table, get basic info
-    const tableInfo = [];
-    for (const tableName of sourceTableNames) {
-      try {
-        const [countResult] = await masterDb.execute(`SELECT COUNT(*) as count FROM ${tableName}`);
-        const count = (countResult as { count: number }[])[0].count;
-        
-        const [columns] = await masterDb.execute(`
-          SELECT COLUMN_NAME 
-          FROM INFORMATION_SCHEMA.COLUMNS 
-          WHERE TABLE_SCHEMA = DATABASE() 
-          AND TABLE_NAME = ?
-          ORDER BY ORDINAL_POSITION
-        `, [tableName]);
-
-        const columnNames = (columns as { COLUMN_NAME: string }[]).map(row => row.COLUMN_NAME);
-
-        tableInfo.push({
-          table_name: tableName,
-          record_count: count,
-          columns: columnNames
-        });
-      } catch (error) {
-        console.warn(`Could not analyze table ${tableName}:`, error);
-        tableInfo.push({
-          table_name: tableName,
-          record_count: 0,
-          error: 'Access denied or table does not exist'
-        });
-      }
-    }
+         // For each table, get basic info
+     const analyticsDb = await getAnalyticsDb();
+     const tableInfo = [];
+     for (const tableName of sourceTableNames) {
+       try {
+         const [countResult] = await masterDb.execute(`SELECT COUNT(*) as count FROM ${tableName}`);
+         const count = (countResult as { count: number }[])[0].count;
+         
+         // Extract brand and country to determine target table name
+         const match = tableName.match(/^(.+)_([a-z]{2})_orders$/);
+         let existsInTarget = false;
+         
+         if (match) {
+           const [, brandPart, country] = match;
+           
+           // Map brand part to brand code
+           let brand = 'unknown';
+           if (brandPart.includes('victoriasecret') || brandPart.includes('vs')) {
+             brand = 'vs';
+           } else if (brandPart.includes('bbw')) {
+             brand = 'bbw';
+           } else if (brandPart.includes('rituals')) {
+             brand = 'rituals';
+           }
+           
+           const targetTable = `orders_${brand}_${country}`;
+           
+           // Check if target table exists
+           const [targetExists] = await analyticsDb.execute(`
+             SELECT COUNT(*) as count
+             FROM INFORMATION_SCHEMA.TABLES 
+             WHERE TABLE_SCHEMA = DATABASE() 
+             AND TABLE_NAME = ?
+           `, [targetTable]);
+           
+           existsInTarget = (targetExists as { count: number }[])[0].count > 0;
+         }
+         
+         tableInfo.push({
+           table_name: tableName,
+          //  record_count: count,
+           table_exists: existsInTarget
+         });
+       } catch (error) {
+         console.warn(`Could not analyze table ${tableName}:`, error);
+         tableInfo.push({
+           table_name: tableName,
+          //  record_count: 0,
+           table_exists: false,
+           error: 'Access denied or table does not exist'
+         });
+       }
+     }
 
     return NextResponse.json({
       message: 'ETL service status',
