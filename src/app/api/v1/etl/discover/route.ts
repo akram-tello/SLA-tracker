@@ -70,28 +70,34 @@ async function discoverTables(): Promise<TableDiscovery[]> {
     
     const existsInTarget = (targetExists as { count: number }[])[0].count > 0;
     
-    // Get record count from source table
-    let recordCount = 0;
+    // Get record count from source table (master DB)
+    let masterRecordCount = 0;
     try {
       const [countResult] = await masterDb.execute(`SELECT COUNT(*) as count FROM ${sourceTable}`);
-      recordCount = (countResult as { count: number }[])[0].count;
+      masterRecordCount = (countResult as { count: number }[])[0].count;
     } catch (error) {
       console.warn(`Could not get record count for ${sourceTable}:`, error);
     }
     
-    // Get last sync time if target table exists
+    // Get record count from target table (SLA DB) and last sync time
+    let slaRecordCount = 0;
     let lastSync: Date | undefined;
     if (existsInTarget) {
       try {
         const [syncResult] = await analyticsDb.execute(`
-          SELECT MAX(updated_at) as last_sync FROM ${targetTable}
+          SELECT 
+            MAX(updated_at) as last_sync,
+            COUNT(*) as count
+          FROM ${targetTable}
         `);
-        const syncTime = (syncResult as { last_sync: string | null }[])[0]?.last_sync;
-        if (syncTime) {
-          lastSync = new Date(syncTime);
+        const result = (syncResult as { last_sync: string | null; count: number }[])[0];
+        
+        if (result?.last_sync) {
+          lastSync = new Date(result.last_sync);
         }
+        slaRecordCount = result?.count || 0;
       } catch (error) {
-        console.warn(`Could not get last sync for ${targetTable}:`, error);
+        console.warn(`Could not get sync info for ${targetTable}:`, error);
       }
     }
     
@@ -103,7 +109,8 @@ async function discoverTables(): Promise<TableDiscovery[]> {
       brand_name: brandConfig.brand_name,
       exists_in_target: existsInTarget,
       last_sync: lastSync,
-      record_count: recordCount
+      master_record_count: masterRecordCount,
+      sla_record_count: slaRecordCount
     });
   }
   
@@ -122,7 +129,8 @@ export async function GET() {
         total_discovered: discoveries.length,
         existing_targets: discoveries.filter(d => d.exists_in_target).length,
         missing_targets: discoveries.filter(d => !d.exists_in_target).length,
-        total_records: discoveries.reduce((sum, d) => sum + (d.record_count || 0), 0)
+        total_master_records: discoveries.reduce((sum, d) => sum + (d.master_record_count || 0), 0),
+        total_sla_records: discoveries.reduce((sum, d) => sum + (d.sla_record_count || 0), 0)
       }
     });
     

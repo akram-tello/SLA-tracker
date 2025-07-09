@@ -89,7 +89,8 @@ export interface TableDiscovery {
   brand_name: string;
   exists_in_target: boolean;
   last_sync?: Date;
-  record_count?: number;
+  master_record_count?: number;
+  sla_record_count?: number;
 }
 
 export interface ColumnMapping {
