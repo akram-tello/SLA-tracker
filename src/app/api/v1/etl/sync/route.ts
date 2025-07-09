@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { ETLService } from '@/lib/etl';
+import { getMasterDb, getAnalyticsDb } from '@/lib/db';
 
 export async function POST(request: NextRequest) {
   try {
@@ -7,61 +7,212 @@ export async function POST(request: NextRequest) {
     const brandCode = searchParams.get('brand') || 'all';
     const countryCode = searchParams.get('country') || 'all';
 
-    const etlService = new ETLService();
+    const masterDb = await getMasterDb();
+    const analyticsDb = await getAnalyticsDb();
 
     const results: Array<{ 
       brand: string; 
       country: string; 
-      result: Awaited<ReturnType<typeof etlService.syncOrderData>>; 
+      success: boolean;
+      processed: number;
+      error?: string;
     }> = [];
 
-    if (brandCode === 'all' || countryCode === 'all') {
-      // Sync all brand-country combinations
-      const combinations = await etlService.getAllBrandCountryCombinations();
-      
-      for (const combo of combinations) {
-        console.log(`Starting ETL sync for ${combo.brand_code}_${combo.country_code} from ${combo.source_table}`);
-        const result = await etlService.syncOrderData(combo.brand_code, combo.country_code, combo.source_table);
-        results.push({
-          brand: combo.brand_code,
-          country: combo.country_code,
-          result
-        });
-      }
-    } else {
-      // Sync specific brand-country combination
-      console.log(`Starting ETL sync for ${brandCode}_${countryCode}`);
-      const result = await etlService.syncOrderData(brandCode, countryCode, undefined);
-      results.push({
-        brand: brandCode,
-        country: countryCode,
-        result
-      });
+    // Simple approach: discover all available source tables first
+    const [tables] = await masterDb.execute(`
+      SELECT TABLE_NAME 
+      FROM INFORMATION_SCHEMA.TABLES 
+      WHERE TABLE_SCHEMA = DATABASE() 
+      AND TABLE_NAME REGEXP '_[a-z]{2}_orders$'
+      ORDER BY TABLE_NAME
+    `);
+
+    const sourceTableNames = (tables as { TABLE_NAME: string }[]).map(row => row.TABLE_NAME);
+    console.log('Found source tables:', sourceTableNames);
+
+    if (sourceTableNames.length === 0) {
+      return NextResponse.json({
+        message: 'No source tables found',
+        error: 'No tables matching pattern *_[country]_orders found in master database'
+      }, { status: 404 });
     }
 
-    // Calculate summary statistics
+    // Process each table
+    for (const sourceTable of sourceTableNames) {
+      // Extract brand and country from table name
+      const match = sourceTable.match(/^(.+)_([a-z]{2})_orders$/);
+      if (!match) continue;
+      
+      const [, brandPart, country] = match;
+      
+             // Map brand part to brand code first
+       let brand = 'unknown';
+       if (brandPart.includes('victoriasecret') || brandPart.includes('vs')) {
+         brand = 'vs';
+       } else if (brandPart.includes('bbw')) {
+         brand = 'bbw';
+       } else if (brandPart.includes('rituals')) {
+         brand = 'rituals';
+       }
+
+       // Skip if filtering by specific brand/country
+       if (brandCode !== 'all' && brand !== brandCode.toLowerCase()) continue;
+       if (countryCode !== 'all' && country !== countryCode.toLowerCase()) continue;
+
+      try {
+                 console.log(`Processing table: ${sourceTable}`);
+
+        const targetTable = `orders_${brand}_${country}`;
+        
+        // Create target table if it doesn't exist
+        await analyticsDb.execute(`
+          CREATE TABLE IF NOT EXISTS ${targetTable} (
+            order_no VARCHAR(100) NOT NULL PRIMARY KEY,
+            order_status VARCHAR(50),
+            shipping_status VARCHAR(50),
+            confirmation_status VARCHAR(50),
+            processing_time DATETIME,
+            shipped_time DATETIME,
+            delivered_time DATETIME,
+            processed_tat INT,
+            shipped_tat INT,
+            delivered_tat INT,
+            order_date DATE,
+            brand_name VARCHAR(100),
+            country_code VARCHAR(10),
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            INDEX idx_order_date (order_date),
+            INDEX idx_brand_country (brand_name, country_code)
+          ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        `);
+
+        // Get a sample of available columns from source table
+        const [columns] = await masterDb.execute(`
+          SELECT COLUMN_NAME 
+          FROM INFORMATION_SCHEMA.COLUMNS 
+          WHERE TABLE_SCHEMA = DATABASE() 
+          AND TABLE_NAME = ?
+          ORDER BY ORDINAL_POSITION
+        `, [sourceTable]);
+
+        const availableColumns = (columns as { COLUMN_NAME: string }[]).map(row => row.COLUMN_NAME);
+        console.log(`Available columns in ${sourceTable}:`, availableColumns);
+
+        // Build a simple query with only columns that exist
+        const selectFields: string[] = [];
+        
+        // Required field - order_no (try different variations)
+        if (availableColumns.includes('order_no')) {
+          selectFields.push('order_no');
+        } else if (availableColumns.includes('order_number')) {
+          selectFields.push('order_number as order_no');
+        } else if (availableColumns.includes('orderid')) {
+          selectFields.push('orderid as order_no');
+        } else {
+          throw new Error('No order identifier column found');
+        }
+
+        // Optional fields - add if they exist
+        if (availableColumns.includes('order_status')) selectFields.push('order_status');
+        if (availableColumns.includes('shipping_status')) selectFields.push('shipping_status');
+        if (availableColumns.includes('confirmation_status')) selectFields.push('confirmation_status');
+        if (availableColumns.includes('processed_time')) selectFields.push('processed_time as processing_time');
+        if (availableColumns.includes('shipped_time')) selectFields.push('shipped_time');
+        if (availableColumns.includes('delivered_time')) selectFields.push('delivered_time');
+        
+        // Date fields
+        if (availableColumns.includes('order_created_date_time')) {
+          selectFields.push('DATE(order_created_date_time) as order_date');
+        } else if (availableColumns.includes('created_at')) {
+          selectFields.push('DATE(created_at) as order_date');
+        } else if (availableColumns.includes('order_date')) {
+          selectFields.push('order_date');
+        }
+
+        // Add brand and country
+        const brandName = brand === 'vs' ? "Victoria's Secret" : 
+                          brand === 'bbw' ? 'Bath & Body Works' : 
+                          brand === 'rituals' ? 'Rituals' : 'Unknown';
+        
+        // Escape single quotes in brand name for SQL
+        const escapedBrandName = brandName.replace(/'/g, "''");
+        selectFields.push(`'${escapedBrandName}' as brand_name`);
+        selectFields.push(`UPPER('${country}') as country_code`);
+        selectFields.push('NOW() as updated_at');
+
+        // Simple query - get all records
+        const query = `
+          SELECT ${selectFields.join(', ')}
+          FROM ${sourceTable}
+          ORDER BY ${availableColumns.includes('order_created_date_time') ? 'order_created_date_time' : 
+                      availableColumns.includes('created_at') ? 'created_at' : '1'} DESC
+        `;
+
+        console.log(`Executing query for ${sourceTable}:`, query);
+        const [sourceRows] = await masterDb.execute(query);
+        const rows = sourceRows as Record<string, string | number | Date | null>[];
+
+        console.log(`Found ${rows.length} rows in ${sourceTable}`);
+
+        if (rows.length === 0) {
+          results.push({
+            brand,
+            country,
+            success: true,
+            processed: 0
+          });
+          continue;
+        }
+
+        // Insert the data
+        let processed = 0;
+        for (const row of rows) {
+          try {
+            const columns = Object.keys(row);
+            const values = Object.values(row);
+            const placeholders = columns.map(() => '?').join(', ');
+            
+            const upsertQuery = `
+              INSERT INTO ${targetTable} (${columns.join(', ')})
+              VALUES (${placeholders})
+              ON DUPLICATE KEY UPDATE
+              ${columns.filter(col => col !== 'order_no').map(col => `${col} = VALUES(${col})`).join(', ')}
+            `;
+
+            await analyticsDb.execute(upsertQuery, values);
+            processed++;
+          } catch (error) {
+            console.warn(`Failed to insert row for ${row.order_no}:`, error);
+          }
+        }
+
+        results.push({
+          brand,
+          country,
+          success: true,
+          processed
+        });
+
+        console.log(`Successfully processed ${processed} records for ${brand}_${country}`);
+
+      } catch (error) {
+        console.error(`Error processing ${sourceTable}:`, error);
+        results.push({
+          brand: brandPart,
+          country,
+          success: false,
+          processed: 0,
+          error: error instanceof Error ? error.message : 'Unknown error'
+        });
+      }
+    }
+
     const summary = {
       total_jobs: results.length,
-      successful_jobs: results.filter(r => r.result.success).length,
-      failed_jobs: results.filter(r => !r.result.success).length,
-      total_processed: results.reduce((sum, r) => sum + r.result.processed, 0),
-      total_duration: results.reduce((sum, r) => sum + r.result.duration, 0),
-      pagination_summary: {
-        jobs_with_more_data: results.filter(r => r.result.pagination?.has_more).length,
-        total_batches_processed: results.reduce((sum, r) => sum + (r.result.pagination?.current_batch || 0), 0),
-        total_batches_remaining: results.reduce((sum, r) => {
-          const pagination = r.result.pagination;
-          return sum + (pagination ? pagination.total_batches - pagination.current_batch : 0);
-        }, 0)
-      },
-      results: results.map(r => ({
-        brand_country: `${r.brand}_${r.country}`,
-        success: r.result.success,
-        processed: r.result.processed,
-        duration_ms: r.result.duration,
-        pagination: r.result.pagination,
-        errors: r.result.errors
-      }))
+      successful_jobs: results.filter(r => r.success).length,
+      failed_jobs: results.filter(r => !r.success).length,
+      total_processed: results.reduce((sum, r) => sum + r.processed, 0),
+      results
     };
 
     console.log('ETL Sync Summary:', summary);
@@ -87,22 +238,61 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// GET endpoint to check ETL status and available combinations
+// GET endpoint to check available tables
 export async function GET() {
   try {
-    const etlService = new ETLService();
-    const combinations = await etlService.getAllBrandCountryCombinations();
-    // const discoveries = await etlService.discoverTables();
+    const masterDb = await getMasterDb();
+    
+    // Check available source tables
+    const [tables] = await masterDb.execute(`
+      SELECT TABLE_NAME 
+      FROM INFORMATION_SCHEMA.TABLES 
+      WHERE TABLE_SCHEMA = DATABASE() 
+      AND TABLE_NAME REGEXP '_[a-z]{2}_orders$'
+      ORDER BY TABLE_NAME
+    `);
+
+    const sourceTableNames = (tables as { TABLE_NAME: string }[]).map(row => row.TABLE_NAME);
+
+    // For each table, get basic info
+    const tableInfo = [];
+    for (const tableName of sourceTableNames) {
+      try {
+        const [countResult] = await masterDb.execute(`SELECT COUNT(*) as count FROM ${tableName}`);
+        const count = (countResult as { count: number }[])[0].count;
+        
+        const [columns] = await masterDb.execute(`
+          SELECT COLUMN_NAME 
+          FROM INFORMATION_SCHEMA.COLUMNS 
+          WHERE TABLE_SCHEMA = DATABASE() 
+          AND TABLE_NAME = ?
+          ORDER BY ORDINAL_POSITION
+        `, [tableName]);
+
+        const columnNames = (columns as { COLUMN_NAME: string }[]).map(row => row.COLUMN_NAME);
+
+        tableInfo.push({
+          table_name: tableName,
+          record_count: count,
+          columns: columnNames
+        });
+      } catch (error) {
+        console.warn(`Could not analyze table ${tableName}:`, error);
+        tableInfo.push({
+          table_name: tableName,
+          record_count: 0,
+          error: 'Access denied or table does not exist'
+        });
+      }
+    }
 
     return NextResponse.json({
       message: 'ETL service status',
-      available_combinations: combinations,
-      // discovered_tables: discoveries,
+      available_tables: tableInfo,
       usage: {
         sync_all: 'POST /api/v1/etl/sync',
         sync_specific: 'POST /api/v1/etl/sync?brand=vs&country=my',
-        discover_tables: 'GET /api/v1/etl/discover',
-        prepare_tables: 'POST /api/v1/etl/discover'
+        discover_tables: 'GET /api/v1/etl/discover'
       }
     });
 
