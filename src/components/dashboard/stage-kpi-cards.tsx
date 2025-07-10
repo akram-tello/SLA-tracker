@@ -1,10 +1,47 @@
 "use client"
 
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
 import { TrendingDown, AlertTriangle, CheckCircle, Package, Truck, Home } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { StageKPI } from "@/lib/types"
+
+// Custom Tailwind components
+const Card = ({ children, className = "", onClick }: { children: React.ReactNode; className?: string; onClick?: () => void }) => (
+  <div className={`bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6 ${onClick ? 'cursor-pointer hover:shadow-lg transition-shadow' : ''} ${className}`} onClick={onClick}>
+    {children}
+  </div>
+);
+
+const CardHeader = ({ children, className = "" }: { children: React.ReactNode; className?: string }) => (
+  <div className={`flex flex-row items-center justify-between space-y-0 pb-2 ${className}`}>
+    {children}
+  </div>
+);
+
+const CardTitle = ({ children, className = "" }: { children: React.ReactNode; className?: string }) => (
+  <h3 className={`text-sm font-medium ${className}`}>
+    {children}
+  </h3>
+);
+
+const CardContent = ({ children }: { children: React.ReactNode }) => (
+  <div>
+    {children}
+  </div>
+);
+
+const Badge = ({ children, variant = "default", className = "" }: { children: React.ReactNode; variant?: "default" | "destructive" | "secondary"; className?: string }) => {
+  const variantClasses = {
+    default: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-300",
+    destructive: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300",
+    secondary: "bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300"
+  };
+  
+  return (
+    <span className={`text-xs font-medium px-2.5 py-0.5 rounded ${variantClasses[variant]} ${className}`}>
+      {children}
+    </span>
+  );
+};
 
 interface StageKPICardsProps {
   stageKpis: StageKPI[]
