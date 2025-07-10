@@ -1,8 +1,8 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { format, subDays } from "date-fns"
-import { KPICards } from "@/components/dashboard/kpi-cards"
+import { format, startOfMonth, endOfMonth, subMonths } from "date-fns"
+import { StageKPICards } from "@/components/dashboard/stage-kpi-cards"
 import { SLAChart } from "@/components/dashboard/sla-chart"
 import { StageBreakdownTable } from "@/components/dashboard/stage-breakdown"
 import { DashboardFilters } from "@/components/dashboard/filters"
@@ -15,8 +15,8 @@ export default function Dashboard() {
   const [summary, setSummary] = useState<DashboardSummary | null>(null)
   const [loading, setLoading] = useState(true)
   const [filters, setFilters] = useState<DashboardFiltersType>({
-    from_date: format(subDays(new Date(), 7), 'yyyy-MM-dd'),
-    to_date: format(new Date(), 'yyyy-MM-dd'),
+    from_date: format(startOfMonth(subMonths(new Date(), 1)), 'yyyy-MM-dd'), // Start of last month
+    to_date: format(endOfMonth(subMonths(new Date(), 1)), 'yyyy-MM-dd'), // End of last month
   })
 
   const fetchSummary = async (currentFilters: DashboardFiltersType) => {
@@ -43,6 +43,7 @@ export default function Dashboard() {
         sla_breached: 0,
         on_risk: 0,
         completed: 0,
+        stage_kpis: [],
         chart_data: [],
         stage_breakdown: [],
       })
@@ -101,34 +102,28 @@ export default function Dashboard() {
         {/* Filters */}
         <DashboardFilters filters={filters} onFiltersChange={handleFiltersChange} />
 
-        {/* KPI Cards */}
-        {summary && (
-          <KPICards
-            totalOrders={summary.total_orders}
-            slaBreached={summary.sla_breached}
-            onRisk={summary.on_risk}
-            completed={summary.completed}
+        {/* Stage-Specific KPI Cards */}
+        {summary && summary.stage_kpis.length > 0 && (
+          <StageKPICards
+            stageKpis={summary.stage_kpis}
+            filters={filters}
           />
         )}
 
         {/* Chart and Table */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Chart */}
           {summary && summary.chart_data.length > 0 ? (
-            <div className="lg:col-span-2">
-              <SLAChart data={summary.chart_data} />
-            </div>
+            <SLAChart data={summary.chart_data} />
           ) : (
-            <div className="lg:col-span-2">
-              <div className="bg-white rounded-lg border p-8 text-center">
-                <p className="text-gray-500">No chart data available for the selected filters</p>
-              </div>
+            <div className="bg-white rounded-lg border p-8 text-center">
+              <p className="text-gray-500">No chart data available for the selected filters</p>
             </div>
           )}
 
           {/* Stage Breakdown */}
           {summary && summary.stage_breakdown.length > 0 ? (
-            <StageBreakdownTable data={summary.stage_breakdown} />
+            <StageBreakdownTable data={summary.stage_breakdown} filters={filters} />
           ) : (
             <div className="bg-white rounded-lg border p-8 text-center">
               <p className="text-gray-500">No breakdown data available for the selected filters</p>

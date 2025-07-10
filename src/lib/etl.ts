@@ -1,90 +1,55 @@
 import { getMasterDb, getAnalyticsDb } from './db';
-import { 
-  ETLJobResult, 
-  TableDiscovery, 
-  ColumnMapping, 
-  ETLJobOptions, 
-  ETLPaginationResult,
-  BrandConfig 
-} from './types';
+import { Connection } from 'mysql2/promise';
+import { formatMinutesToTimeString, parseTimeStringToMinutes, calculateRiskThreshold } from './utils';
 
-// Default column mappings for order tables
-const DEFAULT_COLUMN_MAPPINGS: ColumnMapping[] = [
-  { source_column: 'order_no', target_column: 'order_no', data_type: 'VARCHAR(100)', is_required: true },
-  { source_column: 'order_status', target_column: 'order_status', data_type: 'VARCHAR(50)', is_required: false },
-  { source_column: 'shipping_status', target_column: 'shipping_status', data_type: 'VARCHAR(50)', is_required: false },
-  { source_column: 'confirmation_status', target_column: 'confirmation_status', data_type: 'VARCHAR(50)', is_required: false },
-  { source_column: 'processed_time', target_column: 'processing_time', data_type: 'DATETIME', is_required: false },
-  { source_column: 'shipped_time', target_column: 'shipped_time', data_type: 'DATETIME', is_required: false },
-  { source_column: 'delivered_time', target_column: 'delivered_time', data_type: 'DATETIME', is_required: false },
-  { 
-    source_column: 'processed_tat', 
-    target_column: 'processed_tat', 
-    data_type: 'INT', 
-    is_required: false,
-    transformation: 'CASE WHEN processed_time IS NOT NULL AND order_created_date_time IS NOT NULL THEN TIMESTAMPDIFF(MINUTE, order_created_date_time, processed_time) ELSE NULL END'
-  },
-  { 
-    source_column: 'shipped_tat', 
-    target_column: 'shipped_tat', 
-    data_type: 'INT', 
-    is_required: false,
-    transformation: 'CASE WHEN shipped_time IS NOT NULL AND processed_time IS NOT NULL THEN DATEDIFF(shipped_time, processed_time) ELSE NULL END'
-  },
-  { 
-    source_column: 'delivered_tat', 
-    target_column: 'delivered_tat', 
-    data_type: 'INT', 
-    is_required: false,
-    transformation: 'CASE WHEN delivered_time IS NOT NULL AND shipped_time IS NOT NULL THEN DATEDIFF(delivered_time, shipped_time) ELSE NULL END'
-  },
-  { 
-    source_column: 'order_date', 
-    target_column: 'order_date', 
-    data_type: 'DATE', 
-    is_required: false,
-    transformation: 'DATE(order_created_date_time)'
-  },
-  { source_column: 'country_code', target_column: 'country_code', data_type: 'VARCHAR(10)', is_required: false, transformation: 'UPPER(country_code)' },
-  { source_column: 'updated_at', target_column: 'updated_at', data_type: 'TIMESTAMP', is_required: false, transformation: 'NOW()' }
-];
+export interface ETLResult {
+  brand: string;
+  country: string;
+  success: boolean;
+  processed: number;
+  error?: string;
+}
 
-// Brand configurations with table patterns maintained
-const BRAND_CONFIGS: BrandConfig[] = [
-  {
-    brand_code: 'vs',
-    brand_name: "Victoria's Secret",
-    source_table_pattern: 'victoriasecret_%_orders',
-    target_table_pattern: 'orders_vs_%'
-  },
-  {
-    brand_code: 'bbw',
-    brand_name: 'Bath & Body Works',
-    source_table_pattern: 'bbw_%_orders',
-    target_table_pattern: 'orders_bbw_%'
-  },
-  {
-    brand_code: 'rituals',
-    brand_name: 'Rituals',
-    source_table_pattern: 'rituals_%_orders',
-    target_table_pattern: 'orders_rituals_%'
-  }
-];
+export interface ETLSummary {
+  total_jobs: number;
+  successful_jobs: number;
+  failed_jobs: number;
+  total_processed: number;
+  results: ETLResult[];
+}
+
+export interface TableInfo {
+  table_name: string;
+  record_count: number;
+  exists_in_target: boolean;
+}
 
 export class ETLService {
-  private defaultOptions: ETLJobOptions = {
-    batch_size: 1000,
-    sync_strategy: 'incremental',
-    sync_window_days: 30
-  };
+  private masterDb: Connection | null = null;
+  private analyticsDb: Connection | null = null;
 
-  async discoverTables(): Promise<TableDiscovery[]> {
-    const masterDb = await getMasterDb();
-    const analyticsDb = await getAnalyticsDb();
-    
-    const discoveries: TableDiscovery[] = [];
-    
-    // Discover tables matching our patterns
+  private async getMasterConnection(): Promise<Connection> {
+    if (!this.masterDb) {
+      this.masterDb = await getMasterDb();
+    }
+    return this.masterDb;
+  }
+
+  private async getAnalyticsConnection(): Promise<Connection> {
+    if (!this.analyticsDb) {
+      this.analyticsDb = await getAnalyticsDb();
+    }
+    return this.analyticsDb;
+  }
+
+  /**
+   * Get list of available source tables with their status
+   */
+  async getAvailableTables(): Promise<TableInfo[]> {
+    const masterDb = await this.getMasterConnection();
+    const analyticsDb = await this.getAnalyticsConnection();
+
+    // Find all source tables
     const [tables] = await masterDb.execute(`
       SELECT TABLE_NAME 
       FROM INFORMATION_SCHEMA.TABLES 
@@ -92,44 +57,196 @@ export class ETLService {
       AND TABLE_NAME REGEXP '_[a-z]{2}_orders$'
       ORDER BY TABLE_NAME
     `);
-    
+
     const sourceTableNames = (tables as { TABLE_NAME: string }[]).map(row => row.TABLE_NAME);
-    
-    for (const sourceTable of sourceTableNames) {
-      const discovery = await this.analyzeTable(sourceTable, masterDb, analyticsDb);
-      if (discovery) {
-        discoveries.push(discovery);
+    const tableInfo: TableInfo[] = [];
+
+    for (const tableName of sourceTableNames) {
+      try {
+        // Get record count
+        const [countResult] = await masterDb.execute(`SELECT COUNT(*) as count FROM ${tableName}`);
+        const count = (countResult as { count: number }[])[0].count;
+        
+        // Check if target table exists
+        const existsInTarget = await this.checkTargetTableExists(tableName, analyticsDb);
+        
+        tableInfo.push({
+          table_name: tableName,
+          record_count: count,
+          exists_in_target: existsInTarget
+        });
+      } catch (error) {
+        console.warn(`Could not analyze table ${tableName}:`, error);
+        tableInfo.push({
+          table_name: tableName,
+          record_count: 0,
+          exists_in_target: false
+        });
       }
     }
-    
-    return discoveries;
+
+    return tableInfo;
   }
 
-  private async analyzeTable(sourceTable: string, masterDb: any, analyticsDb: any): Promise<TableDiscovery | null> {
-    // Extract brand_code and country_code from table name
+  /**
+   * Sync all available tables
+   */
+  async syncAll(): Promise<ETLSummary> {
+    return this.sync();
+  }
+
+  /**
+   * Sync specific brand and country
+   */
+  async syncSpecific(brandCode: string, countryCode: string): Promise<ETLSummary> {
+    return this.sync(brandCode, countryCode);
+  }
+
+  /**
+   * Main sync method - handles both all and specific syncing
+   */
+  private async sync(brandFilter?: string, countryFilter?: string): Promise<ETLSummary> {
+    const masterDb = await this.getMasterConnection();
+    const analyticsDb = await this.getAnalyticsConnection();
+
+    // Discover all available source tables
+    const [tables] = await masterDb.execute(`
+      SELECT TABLE_NAME 
+      FROM INFORMATION_SCHEMA.TABLES 
+      WHERE TABLE_SCHEMA = DATABASE() 
+      AND TABLE_NAME REGEXP '_[a-z]{2}_orders$'
+      ORDER BY TABLE_NAME
+    `);
+
+    const sourceTableNames = (tables as { TABLE_NAME: string }[]).map(row => row.TABLE_NAME);
+    console.log('Found source tables:', sourceTableNames);
+
+    if (sourceTableNames.length === 0) {
+      throw new Error('No source tables found matching pattern *_[country]_orders');
+    }
+
+    const results: ETLResult[] = [];
+
+    // Process each table
+    for (const sourceTable of sourceTableNames) {
+      const tableResult = await this.syncTable(sourceTable, masterDb, analyticsDb, brandFilter, countryFilter);
+      if (tableResult) {
+        results.push(tableResult);
+      }
+    }
+
+    return {
+      total_jobs: results.length,
+      successful_jobs: results.filter(r => r.success).length,
+      failed_jobs: results.filter(r => !r.success).length,
+      total_processed: results.reduce((sum, r) => sum + r.processed, 0),
+      results
+    };
+  }
+
+  /**
+   * Sync a single table
+   */
+  private async syncTable(
+    sourceTable: string, 
+    masterDb: Connection, 
+    analyticsDb: Connection,
+    brandFilter?: string,
+    countryFilter?: string
+  ): Promise<ETLResult | null> {
+    // Extract brand and country from table name
     const match = sourceTable.match(/^(.+)_([a-z]{2})_orders$/);
     if (!match) return null;
     
-    const [, brandPart, countryCode] = match;
+    const [, brandPart, country] = match;
     
-    // Find matching brand config or create generic one
-    let brandConfig = BRAND_CONFIGS.find(config => 
-      sourceTable.startsWith(config.brand_code === 'vs' ? 'victoriasecret' : config.brand_code)
-    );
+    // Map brand part to brand code
+    const brand = this.mapBrandCode(brandPart);
     
-    if (!brandConfig) {
-      // Generic brand config for unknown brands
-      brandConfig = {
-        brand_code: brandPart.substring(0, 3),
-        brand_name: brandPart.charAt(0).toUpperCase() + brandPart.slice(1),
-        source_table_pattern: `${brandPart}_%_orders`,
-        target_table_pattern: `orders_${brandPart.substring(0, 3)}_%`
+    // Apply filters
+    if (brandFilter && brand !== brandFilter.toLowerCase()) return null;
+    if (countryFilter && country !== countryFilter.toLowerCase()) return null;
+
+    try {
+      console.log(`Processing table: ${sourceTable}`);
+      
+      const targetTable = `orders_${brand}_${country}`;
+      
+      // Create target table if needed
+      await this.ensureTargetTable(targetTable, analyticsDb);
+      
+      // Get available columns
+      const availableColumns = await this.getTableColumns(sourceTable, masterDb);
+      console.log(`Available columns in ${sourceTable}:`, availableColumns);
+      
+      // Build select fields
+      const selectFields = this.buildSelectFields(availableColumns, brand, country);
+      
+      // Get total count
+      const [countResult] = await masterDb.execute(`SELECT COUNT(*) as total FROM ${sourceTable}`);
+      const totalRecords = (countResult as { total: number }[])[0].total;
+      
+      console.log(`Total records in ${sourceTable}: ${totalRecords}`);
+
+      if (totalRecords === 0) {
+        return { brand, country, success: true, processed: 0 };
+      }
+
+      // Process in batches
+      const processed = await this.processBatches(
+        sourceTable, 
+        targetTable, 
+        selectFields, 
+        availableColumns,
+        totalRecords, 
+        masterDb, 
+        analyticsDb
+      );
+
+             console.log(`Successfully processed ${processed} records for ${brand}_${country}`);
+       
+       // Generate daily summary for dashboard
+       await this.generateDailySummary(targetTable, brand, country, analyticsDb);
+       
+       return { brand, country, success: true, processed };
+
+    } catch (error) {
+      console.error(`Error processing ${sourceTable}:`, error);
+      return {
+        brand: brandPart,
+        country,
+        success: false,
+        processed: 0,
+        error: error instanceof Error ? error.message : 'Unknown error'
       };
     }
+  }
+
+  /**
+   * Map brand part from table name to brand code
+   */
+  private mapBrandCode(brandPart: string): string {
+    if (brandPart.includes('victoriasecret') || brandPart.includes('vs')) {
+      return 'vs';
+    } else if (brandPart.includes('bbw')) {
+      return 'bbw';
+    } else if (brandPart.includes('rituals')) {
+      return 'rituals';
+    }
+    return 'unknown';
+  }
+
+  /**
+   * Check if target table exists
+   */
+  private async checkTargetTableExists(sourceTable: string, analyticsDb: Connection): Promise<boolean> {
+    const match = sourceTable.match(/^(.+)_([a-z]{2})_orders$/);
+    if (!match) return false;
     
-    const targetTable = `orders_${brandConfig.brand_code}_${countryCode}`;
+    const [, brandPart, country] = match;
+    const brand = this.mapBrandCode(brandPart);
+    const targetTable = `orders_${brand}_${country}`;
     
-    // Check if target table exists
     const [targetExists] = await analyticsDb.execute(`
       SELECT COUNT(*) as count
       FROM INFORMATION_SCHEMA.TABLES 
@@ -137,296 +254,403 @@ export class ETLService {
       AND TABLE_NAME = ?
     `, [targetTable]);
     
-    const existsInTarget = (targetExists as { count: number }[])[0].count > 0;
-    
-    // Get record count and last sync
-    let recordCount = 0;
-    let lastSync: Date | undefined;
-    
-    try {
-      const [countResult] = await masterDb.execute(`SELECT COUNT(*) as count FROM ${sourceTable}`);
-      recordCount = (countResult as { count: number }[])[0].count;
-    } catch (error) {
-      console.warn(`Could not get record count for ${sourceTable}:`, error);
-    }
-    
-    if (existsInTarget) {
-      try {
-        const [syncResult] = await analyticsDb.execute(`
-          SELECT MAX(updated_at) as last_sync FROM ${targetTable}
-        `);
-        const syncTime = (syncResult as { last_sync: string | null }[])[0]?.last_sync;
-        if (syncTime) {
-          lastSync = new Date(syncTime);
-        }
-      } catch (error) {
-        console.warn(`Could not get last sync for ${targetTable}:`, error);
-      }
-    }
-    
-    return {
-      source_table: sourceTable,
-      target_table: targetTable,
-      brand_code: brandConfig.brand_code,
-      country_code: countryCode,
-      brand_name: brandConfig.brand_name,
-      exists_in_target: existsInTarget,
-      last_sync: lastSync,
-      record_count: recordCount
-    };
+    return (targetExists as { count: number }[])[0].count > 0;
   }
 
-  async ensureTargetTableExists(targetTable: string): Promise<void> {
-    const analyticsDb = await getAnalyticsDb();
-    
-    // Check if table exists
-    const [exists] = await analyticsDb.execute(`
-      SELECT COUNT(*) as count
-      FROM INFORMATION_SCHEMA.TABLES 
+  /**
+   * Ensure target table exists, create if needed
+   */
+  private async ensureTargetTable(targetTable: string, analyticsDb: Connection): Promise<void> {
+    await analyticsDb.execute(`
+      CREATE TABLE IF NOT EXISTS ${targetTable} (
+        order_no VARCHAR(100) NOT NULL PRIMARY KEY,
+        order_status VARCHAR(50),
+        shipping_status VARCHAR(50),
+        confirmation_status VARCHAR(50),
+        processing_time DATETIME,
+        shipped_time DATETIME,
+        delivered_time DATETIME,
+        processed_tat VARCHAR(20) COMMENT 'Formatted time string (e.g., "2h 30m")',
+        shipped_tat VARCHAR(20) COMMENT 'Formatted time string (e.g., "2d 5h")',
+        delivered_tat VARCHAR(20) COMMENT 'Formatted time string (e.g., "7d 12h")',
+        order_date DATE,
+        brand_name VARCHAR(100),
+        country_code VARCHAR(10),
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_order_date (order_date),
+        INDEX idx_brand_country (brand_name, country_code)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+  }
+
+  /**
+   * Get available columns for a table
+   */
+  private async getTableColumns(tableName: string, masterDb: Connection): Promise<string[]> {
+    const [columns] = await masterDb.execute(`
+      SELECT COLUMN_NAME 
+      FROM INFORMATION_SCHEMA.COLUMNS 
       WHERE TABLE_SCHEMA = DATABASE() 
       AND TABLE_NAME = ?
-    `, [targetTable]);
+      ORDER BY ORDINAL_POSITION
+    `, [tableName]);
+
+    return (columns as { COLUMN_NAME: string }[]).map(row => row.COLUMN_NAME);
+  }
+
+  /**
+   * Build select fields based on available columns
+   */
+  private buildSelectFields(availableColumns: string[], brand: string, country: string): string[] {
+    const selectFields: string[] = [];
     
-    if ((exists as { count: number }[])[0].count === 0) {
-      // Create table with proper schema
-      const createTableQuery = `
-        CREATE TABLE ${targetTable} (
-          order_no VARCHAR(100) NOT NULL PRIMARY KEY,
-          order_status VARCHAR(50),
-          shipping_status VARCHAR(50),
-          confirmation_status VARCHAR(50),
-          processing_time DATETIME,
-          shipped_time DATETIME,
-          delivered_time DATETIME,
-          processed_tat INT,
-          shipped_tat INT,
-          delivered_tat INT,
-          order_date DATE,
-          brand_name VARCHAR(100),
-          country_code VARCHAR(10),
-          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-          INDEX idx_order_date (order_date),
-          INDEX idx_brand_country (brand_name, country_code),
-          INDEX idx_updated_at (updated_at)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    // Required field - order_no (try different variations)
+    if (availableColumns.includes('order_no')) {
+      selectFields.push('order_no');
+    } else if (availableColumns.includes('order_number')) {
+      selectFields.push('order_number as order_no');
+    } else if (availableColumns.includes('orderid')) {
+      selectFields.push('orderid as order_no');
+    } else {
+      throw new Error('No order identifier column found');
+    }
+
+         // Optional fields - add if they exist
+     if (availableColumns.includes('order_status')) selectFields.push('order_status');
+     if (availableColumns.includes('shipping_status')) selectFields.push('shipping_status');
+     if (availableColumns.includes('confirmation_status')) selectFields.push('confirmation_status');
+     if (availableColumns.includes('processed_time')) selectFields.push('processed_time as processing_time');
+     if (availableColumns.includes('shipped_time')) selectFields.push('shipped_time');
+     if (availableColumns.includes('delivered_time')) selectFields.push('delivered_time');
+
+     // Calculate TAT fields with flexible column name matching
+     // Check for different possible column names for creation date
+     const createdDateColumn = availableColumns.find(col => 
+       col.includes('created') || col.includes('date') || col.includes('order_date')
+     );
+     
+     // Calculate TAT in minutes for all stages (will be formatted later)
+     if (availableColumns.includes('processed_time') && createdDateColumn) {
+       selectFields.push(`CASE WHEN processed_time IS NOT NULL AND ${createdDateColumn} IS NOT NULL THEN TIMESTAMPDIFF(MINUTE, ${createdDateColumn}, processed_time) ELSE NULL END as processed_tat_minutes`);
+     } else {
+       selectFields.push('NULL as processed_tat_minutes');
+     }
+     
+     if (availableColumns.includes('shipped_time') && availableColumns.includes('processed_time')) {
+       selectFields.push('CASE WHEN shipped_time IS NOT NULL AND processed_time IS NOT NULL THEN TIMESTAMPDIFF(MINUTE, processed_time, shipped_time) ELSE NULL END as shipped_tat_minutes');
+     } else {
+       selectFields.push('NULL as shipped_tat_minutes');
+     }
+     
+     if (availableColumns.includes('delivered_time') && availableColumns.includes('shipped_time')) {
+       selectFields.push('CASE WHEN delivered_time IS NOT NULL AND shipped_time IS NOT NULL THEN TIMESTAMPDIFF(MINUTE, shipped_time, delivered_time) ELSE NULL END as delivered_tat_minutes');
+     } else {
+       selectFields.push('NULL as delivered_tat_minutes');
+     }
+    
+    // Date fields
+    if (availableColumns.includes('order_created_date_time')) {
+      selectFields.push('DATE(order_created_date_time) as order_date');
+    } else if (availableColumns.includes('created_at')) {
+      selectFields.push('DATE(created_at) as order_date');
+    } else if (availableColumns.includes('order_date')) {
+      selectFields.push('order_date');
+    }
+
+    // Add brand and country
+    const brandName = this.getBrandName(brand);
+    const escapedBrandName = brandName.replace(/'/g, "''");
+    selectFields.push(`'${escapedBrandName}' as brand_name`);
+    selectFields.push(`UPPER('${country}') as country_code`);
+    selectFields.push('NOW() as updated_at');
+
+    return selectFields;
+  }
+
+  /**
+   * Get brand display name from code
+   */
+  private getBrandName(brandCode: string): string {
+    switch (brandCode) {
+      case 'vs': return "Victoria's Secret";
+      case 'bbw': return 'Bath & Body Works';
+      case 'rituals': return 'Rituals';
+      default: return 'Unknown';
+    }
+  }
+
+  /**
+   * Process data in batches
+   */
+  private async processBatches(
+    sourceTable: string,
+    targetTable: string,
+    selectFields: string[],
+    availableColumns: string[],
+    totalRecords: number,
+    masterDb: Connection,
+    analyticsDb: Connection
+  ): Promise<number> {
+    const batchSize = 1000;
+    let processed = 0;
+    let offset = 0;
+
+    while (offset < totalRecords) {
+      const batchQuery = `
+        SELECT ${selectFields.join(', ')}
+        FROM ${sourceTable}
+        ORDER BY ${availableColumns.includes('order_created_date_time') ? 'order_created_date_time' : 
+                    availableColumns.includes('created_at') ? 'created_at' : '1'} DESC
+        LIMIT ${batchSize} OFFSET ${offset}
       `;
+
+      console.log(`Processing batch ${Math.floor(offset/batchSize) + 1}/${Math.ceil(totalRecords/batchSize)} for ${sourceTable}`);
       
-      await analyticsDb.execute(createTableQuery);
-      console.log(`Created target table: ${targetTable}`);
-    }
-  }
+      const [sourceRows] = await masterDb.execute(batchQuery);
+      const rows = sourceRows as Record<string, string | number | Date | null>[];
 
-  private buildSelectQuery(sourceTable: string, brandName: string, columnMappings: ColumnMapping[]): string {
-    const selectFields = columnMappings.map(mapping => {
-      if (mapping.transformation) {
-        return `${mapping.transformation} as ${mapping.target_column}`;
-      }
-      return `${mapping.source_column} as ${mapping.target_column}`;
-    });
+      if (rows.length === 0) break;
 
-    // Add brand_name field with proper mapping
-    const brandNameMapping = `'${brandName}' as brand_name`;
-    selectFields.push(brandNameMapping);
-
-    return `
-      SELECT ${selectFields.join(', ')}
-      FROM ${sourceTable}
-    `;
-  }
-
-  async syncOrderData(
-    brandCode: string, 
-    countryCode: string, 
-    sourceTable?: string, 
-    options?: ETLJobOptions
-  ): Promise<ETLJobResult & { pagination?: ETLPaginationResult }> {
-    const startTime = Date.now();
-    const opts = { ...this.defaultOptions, ...options };
-    const result: ETLJobResult & { pagination?: ETLPaginationResult } = {
-      success: false,
-      processed: 0,
-      errors: [],
-      duration: 0,
-    };
-
-    try {
-      const masterDb = await getMasterDb();
-      const analyticsDb = await getAnalyticsDb();
-
-      // Get table discovery info
-      let discovery: TableDiscovery;
-      
-      if (sourceTable) {
-        // Analyze provided source table
-        const analyzedTable = await this.analyzeTable(sourceTable, masterDb, analyticsDb);
-        if (!analyzedTable) {
-          throw new Error(`Invalid source table: ${sourceTable}`);
-        }
-        discovery = analyzedTable;
-      } else {
-        // Find discovery by brand and country
-        const discoveries = await this.discoverTables();
-        const foundDiscovery = discoveries.find(d => 
-          d.brand_code === brandCode.toLowerCase() && 
-          d.country_code === countryCode.toLowerCase()
-        );
-        
-        if (!foundDiscovery) {
-          throw new Error(`No table found for brand: ${brandCode}, country: ${countryCode}`);
-        }
-        discovery = foundDiscovery;
-      }
-
-      // Ensure target table exists - create if needed
-      if (!discovery.exists_in_target) {
-        console.log(`Target table ${discovery.target_table} does not exist, creating...`);
-        await this.ensureTargetTableExists(discovery.target_table);
-        
-        // Update discovery status after creating table
-        discovery.exists_in_target = true;
-      }
-
-      // Get column mappings (can be customized per table in the future)
-      const columnMappings = DEFAULT_COLUMN_MAPPINGS;
-
-      // Build dynamic select query
-      const baseQuery = this.buildSelectQuery(discovery.source_table, discovery.brand_name, columnMappings);
-
-      // Add filtering and pagination
-      let whereClause = '';
-      const queryParams: any[] = [];
-
-      if (opts.sync_strategy === 'incremental' && discovery.last_sync) {
-        whereClause = 'WHERE order_created_date_time > ?';
-        queryParams.push(discovery.last_sync);
-      } else if (opts.sync_window_days) {
-        whereClause = 'WHERE order_created_date_time >= DATE_SUB(NOW(), INTERVAL ? DAY)';
-        queryParams.push(opts.sync_window_days);
-      }
-
-      // Get total count for pagination
-      const countQuery = `SELECT COUNT(*) as total FROM ${discovery.source_table} ${whereClause}`;
-      const [countResult] = await masterDb.execute(countQuery, queryParams);
-      const totalRecords = (countResult as { total: number }[])[0].total;
-
-      const totalBatches = Math.ceil(totalRecords / opts.batch_size!);
-      let currentBatch = 0;
-      let totalProcessed = 0;
-
-      // Process in batches
-      while (currentBatch < totalBatches && (!opts.max_records || totalProcessed < opts.max_records)) {
-        const offset = currentBatch * opts.batch_size!;
-        const limit = Math.min(opts.batch_size!, (opts.max_records || Infinity) - totalProcessed);
-
-        const paginatedQuery = `
-          ${baseQuery}
-          ${whereClause}
-          ORDER BY order_created_date_time DESC
-          LIMIT ? OFFSET ?
-        `;
-
-        const paginationParams = [...queryParams, limit, offset];
-        const [sourceRows] = await masterDb.execute(paginatedQuery, paginationParams);
-        const rows = sourceRows as Record<string, string | number | Date | null>[];
-
-        if (rows.length === 0) break;
-
-        // Build upsert query
-        const targetColumns = columnMappings.map(m => m.target_column);
-        targetColumns.push('brand_name'); // Add brand_name column
-        
-        const placeholders = targetColumns.map(() => '?').join(', ');
-        const updateClause = targetColumns
-          .filter(col => col !== 'order_no') // Don't update primary key
-          .map(col => `${col} = VALUES(${col})`)
-          .join(', ');
-
-        const upsertQuery = `
-          INSERT INTO ${discovery.target_table} (${targetColumns.join(', ')})
-          VALUES (${placeholders})
-          ON DUPLICATE KEY UPDATE ${updateClause}
-        `;
-
-        // Insert batch
-        for (const row of rows) {
-          try {
-            const values = targetColumns.map(col => row[col]);
-            await analyticsDb.execute(upsertQuery, values);
-            totalProcessed++;
-          } catch (error) {
-            result.errors.push(`Failed to upsert order ${row.order_no}: ${error}`);
+      // Insert batch data
+      for (const row of rows) {
+        try {
+          // Transform TAT minute values to formatted strings
+          const transformedRow = { ...row };
+          
+          // Format processed TAT
+          if (row.processed_tat_minutes !== null && row.processed_tat_minutes !== undefined) {
+            transformedRow.processed_tat = formatMinutesToTimeString(Number(row.processed_tat_minutes));
+            delete transformedRow.processed_tat_minutes;
+          } else {
+            transformedRow.processed_tat = null;
+            delete transformedRow.processed_tat_minutes;
           }
-        }
+          
+          // Format shipped TAT  
+          if (row.shipped_tat_minutes !== null && row.shipped_tat_minutes !== undefined) {
+            transformedRow.shipped_tat = formatMinutesToTimeString(Number(row.shipped_tat_minutes));
+            delete transformedRow.shipped_tat_minutes;
+          } else {
+            transformedRow.shipped_tat = null;
+            delete transformedRow.shipped_tat_minutes;
+          }
+          
+          // Format delivered TAT
+          if (row.delivered_tat_minutes !== null && row.delivered_tat_minutes !== undefined) {
+            transformedRow.delivered_tat = formatMinutesToTimeString(Number(row.delivered_tat_minutes));
+            delete transformedRow.delivered_tat_minutes;
+          } else {
+            transformedRow.delivered_tat = null;
+            delete transformedRow.delivered_tat_minutes;
+          }
+          
+          const columns = Object.keys(transformedRow);
+          const values = Object.values(transformedRow);
+          const placeholders = columns.map(() => '?').join(', ');
+          
+          const upsertQuery = `
+            INSERT INTO ${targetTable} (${columns.join(', ')})
+            VALUES (${placeholders})
+            ON DUPLICATE KEY UPDATE
+            ${columns.filter(col => col !== 'order_no').map(col => `${col} = VALUES(${col})`).join(', ')}
+          `;
 
-        currentBatch++;
-        console.log(`Processed batch ${currentBatch}/${totalBatches} (${rows.length} records)`);
+          await analyticsDb.execute(upsertQuery, values);
+          processed++;
+        } catch (error) {
+          console.warn(`Failed to insert row for ${row.order_no}:`, error);
+        }
       }
 
-      // Set pagination info
-      result.pagination = {
-        current_batch: currentBatch,
-        total_batches: totalBatches,
-        records_processed: totalProcessed,
-        has_more: currentBatch < totalBatches
-      };
-
-      result.processed = totalProcessed;
-
-      // Refresh daily summary after sync
-      await this.refreshDailySummary(discovery.brand_code, discovery.country_code);
-
-      result.success = result.errors.length === 0;
-      result.duration = Date.now() - startTime;
-
-    } catch (error) {
-      result.errors.push(`ETL job failed: ${error}`);
-      result.duration = Date.now() - startTime;
+      offset += batchSize;
+      
+      // Small delay to prevent overwhelming the database
+      if (offset < totalRecords) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
     }
 
-    return result;
+    return processed;
   }
 
-  async refreshDailySummary(brandCode: string, countryCode: string): Promise<void> {
-    const analyticsDb = await getAnalyticsDb();
-    const targetTable = `orders_${brandCode.toLowerCase()}_${countryCode.toLowerCase()}`;
+  /**
+   * Generate daily summary data for dashboard
+   */
+  private async generateDailySummary(targetTable: string, brand: string, country: string, analyticsDb: Connection): Promise<void> {
+    try {
+      const brandName = this.getBrandName(brand);
+      
+      // Get TAT configuration for this brand/country combination
+      const [tatConfigRows] = await analyticsDb.execute(`
+        SELECT processed_tat, shipped_tat, delivered_tat, risk_pct
+        FROM tat_config 
+        WHERE brand_name = ? AND country_code = ?
+      `, [brandName, country.toUpperCase()]);
+      
+      const tatConfigArray = tatConfigRows as Record<string, string | number>[];
+      if (tatConfigArray.length === 0) {
+        console.warn(`No TAT config found for ${brandName}/${country.toUpperCase()}, skipping summary generation`);
+        return;
+      }
+      
+      const tatConfig = tatConfigArray[0];
+      const { processed_tat, shipped_tat, delivered_tat, risk_pct } = tatConfig;
+      
+      // Calculate risk thresholds using formatted time strings
+      const processedRiskThreshold = calculateRiskThreshold(String(processed_tat), Number(risk_pct));
+      const shippedRiskThreshold = calculateRiskThreshold(String(shipped_tat), Number(risk_pct));
+      const deliveredRiskThreshold = calculateRiskThreshold(String(delivered_tat), Number(risk_pct));
+      
+      // Generate summary for all three stages
+      const stages = [
+        {
+          stage: 'Processed',
+          tat_field: 'processed_tat',
+          sla_threshold: String(processed_tat),
+          risk_threshold: processedRiskThreshold
+        },
+        {
+          stage: 'Shipped', 
+          tat_field: 'shipped_tat',
+          sla_threshold: String(shipped_tat),
+          risk_threshold: shippedRiskThreshold
+        },
+        {
+          stage: 'Delivered',
+          tat_field: 'delivered_tat', 
+          sla_threshold: String(delivered_tat),
+          risk_threshold: deliveredRiskThreshold
+        }
+      ];
 
-    // This would be implemented as a stored procedure in production
-    const refreshQuery = `
-      INSERT INTO sla_daily_summary (
-        summary_date, brand_name, country_code, stage,
-        orders_total, orders_on_time, orders_on_risk, orders_breached, avg_delay_sec
-      )
-      SELECT 
-        order_date,
-        brand_name,
-        country_code,
-        'Processed' as stage,
-        COUNT(*) as orders_total,
-        SUM(CASE WHEN processed_tat <= (SELECT processed_tat FROM tat_config t WHERE t.brand_name = o.brand_name AND t.country_code = o.country_code) THEN 1 ELSE 0 END) as orders_on_time,
-        SUM(CASE WHEN processed_tat > (SELECT processed_tat * risk_pct / 100 FROM tat_config t WHERE t.brand_name = o.brand_name AND t.country_code = o.country_code) AND processed_tat <= (SELECT processed_tat FROM tat_config t WHERE t.brand_name = o.brand_name AND t.country_code = o.country_code) THEN 1 ELSE 0 END) as orders_on_risk,
-        SUM(CASE WHEN processed_tat > (SELECT processed_tat FROM tat_config t WHERE t.brand_name = o.brand_name AND t.country_code = o.country_code) THEN 1 ELSE 0 END) as orders_breached,
-        AVG(CASE WHEN processed_tat IS NOT NULL THEN processed_tat * 60 ELSE 0 END) as avg_delay_sec
-      FROM ${targetTable} o
-      WHERE processing_time IS NOT NULL
-      GROUP BY order_date, brand_name, country_code
-      ON DUPLICATE KEY UPDATE
-        orders_total = VALUES(orders_total),
-        orders_on_time = VALUES(orders_on_time),
-        orders_on_risk = VALUES(orders_on_risk),
-        orders_breached = VALUES(orders_breached),
-        avg_delay_sec = VALUES(avg_delay_sec),
-        refreshed_at = CURRENT_TIMESTAMP
-    `;
+      for (const stageConfig of stages) {
+        // Convert thresholds to minutes for SQL comparison
+        const slaThresholdMinutes = parseTimeStringToMinutes(stageConfig.sla_threshold);
+        const riskThresholdMinutes = parseTimeStringToMinutes(stageConfig.risk_threshold);
 
-    await analyticsDb.execute(refreshQuery);
-  }
+        const summaryQuery = `
+          INSERT INTO sla_daily_summary (
+            summary_date, brand_name, brand_code, country_code, stage,
+            orders_total, orders_on_time, orders_on_risk, orders_breached, avg_delay_sec
+          )
+          SELECT 
+            order_date,
+            brand_name,
+            '${brand}' as brand_code,
+            country_code,
+            '${stageConfig.stage}' as stage,
+            COUNT(*) as orders_total,
+            SUM(CASE 
+              WHEN ${stageConfig.tat_field} IS NOT NULL THEN
+                CASE WHEN (
+                  -- Parse TAT string to minutes for comparison
+                  COALESCE(
+                    CASE WHEN ${stageConfig.tat_field} REGEXP '[0-9]+d' THEN 
+                      CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(${stageConfig.tat_field}, 'd', 1), ' ', -1) AS UNSIGNED) * 1440 
+                    ELSE 0 END +
+                    CASE WHEN ${stageConfig.tat_field} REGEXP '[0-9]+h' THEN 
+                      CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(${stageConfig.tat_field}, 'h', 1), ' ', -1) AS UNSIGNED) * 60 
+                    ELSE 0 END +
+                    CASE WHEN ${stageConfig.tat_field} REGEXP '[0-9]+m' THEN 
+                      CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(${stageConfig.tat_field}, 'm', 1), ' ', -1) AS UNSIGNED)
+                    ELSE 0 END, 0
+                  ) <= ${slaThresholdMinutes}
+                ) THEN 1 ELSE 0 END
+              WHEN ${stageConfig.tat_field} IS NULL THEN 1 
+              ELSE 0 
+            END) as orders_on_time,
+            SUM(CASE 
+              WHEN ${stageConfig.tat_field} IS NOT NULL THEN
+                CASE WHEN (
+                  COALESCE(
+                    CASE WHEN ${stageConfig.tat_field} REGEXP '[0-9]+d' THEN 
+                      CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(${stageConfig.tat_field}, 'd', 1), ' ', -1) AS UNSIGNED) * 1440 
+                    ELSE 0 END +
+                    CASE WHEN ${stageConfig.tat_field} REGEXP '[0-9]+h' THEN 
+                      CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(${stageConfig.tat_field}, 'h', 1), ' ', -1) AS UNSIGNED) * 60 
+                    ELSE 0 END +
+                    CASE WHEN ${stageConfig.tat_field} REGEXP '[0-9]+m' THEN 
+                      CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(${stageConfig.tat_field}, 'm', 1), ' ', -1) AS UNSIGNED)
+                    ELSE 0 END, 0
+                  ) > ${riskThresholdMinutes} AND 
+                  COALESCE(
+                    CASE WHEN ${stageConfig.tat_field} REGEXP '[0-9]+d' THEN 
+                      CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(${stageConfig.tat_field}, 'd', 1), ' ', -1) AS UNSIGNED) * 1440 
+                    ELSE 0 END +
+                    CASE WHEN ${stageConfig.tat_field} REGEXP '[0-9]+h' THEN 
+                      CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(${stageConfig.tat_field}, 'h', 1), ' ', -1) AS UNSIGNED) * 60 
+                    ELSE 0 END +
+                    CASE WHEN ${stageConfig.tat_field} REGEXP '[0-9]+m' THEN 
+                      CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(${stageConfig.tat_field}, 'm', 1), ' ', -1) AS UNSIGNED)
+                    ELSE 0 END, 0
+                  ) <= ${slaThresholdMinutes}
+                ) THEN 1 ELSE 0 END
+              ELSE 0 
+            END) as orders_on_risk,
+            SUM(CASE 
+              WHEN ${stageConfig.tat_field} IS NOT NULL THEN
+                CASE WHEN (
+                  COALESCE(
+                    CASE WHEN ${stageConfig.tat_field} REGEXP '[0-9]+d' THEN 
+                      CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(${stageConfig.tat_field}, 'd', 1), ' ', -1) AS UNSIGNED) * 1440 
+                    ELSE 0 END +
+                    CASE WHEN ${stageConfig.tat_field} REGEXP '[0-9]+h' THEN 
+                      CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(${stageConfig.tat_field}, 'h', 1), ' ', -1) AS UNSIGNED) * 60 
+                    ELSE 0 END +
+                    CASE WHEN ${stageConfig.tat_field} REGEXP '[0-9]+m' THEN 
+                      CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(${stageConfig.tat_field}, 'm', 1), ' ', -1) AS UNSIGNED)
+                    ELSE 0 END, 0
+                  ) > ${slaThresholdMinutes}
+                ) THEN 1 ELSE 0 END
+              ELSE 0 
+            END) as orders_breached,
+            AVG(CASE 
+              WHEN ${stageConfig.tat_field} IS NOT NULL THEN
+                CASE WHEN (
+                  COALESCE(
+                    CASE WHEN ${stageConfig.tat_field} REGEXP '[0-9]+d' THEN 
+                      CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(${stageConfig.tat_field}, 'd', 1), ' ', -1) AS UNSIGNED) * 1440 
+                    ELSE 0 END +
+                    CASE WHEN ${stageConfig.tat_field} REGEXP '[0-9]+h' THEN 
+                      CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(${stageConfig.tat_field}, 'h', 1), ' ', -1) AS UNSIGNED) * 60 
+                    ELSE 0 END +
+                    CASE WHEN ${stageConfig.tat_field} REGEXP '[0-9]+m' THEN 
+                      CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(${stageConfig.tat_field}, 'm', 1), ' ', -1) AS UNSIGNED)
+                    ELSE 0 END, 0
+                  ) > ${slaThresholdMinutes}
+                ) THEN (
+                  COALESCE(
+                    CASE WHEN ${stageConfig.tat_field} REGEXP '[0-9]+d' THEN 
+                      CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(${stageConfig.tat_field}, 'd', 1), ' ', -1) AS UNSIGNED) * 1440 
+                    ELSE 0 END +
+                    CASE WHEN ${stageConfig.tat_field} REGEXP '[0-9]+h' THEN 
+                      CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(${stageConfig.tat_field}, 'h', 1), ' ', -1) AS UNSIGNED) * 60 
+                    ELSE 0 END +
+                    CASE WHEN ${stageConfig.tat_field} REGEXP '[0-9]+m' THEN 
+                      CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(${stageConfig.tat_field}, 'm', 1), ' ', -1) AS UNSIGNED)
+                    ELSE 0 END, 0
+                  ) * 60 -- Convert minutes to seconds
+                ) ELSE 0 END
+              ELSE 0 
+            END) as avg_delay_sec
+          FROM ${targetTable} o
+          WHERE order_date IS NOT NULL
+          GROUP BY order_date, brand_name, country_code
+          ON DUPLICATE KEY UPDATE
+            orders_total = VALUES(orders_total),
+            orders_on_time = VALUES(orders_on_time),
+            orders_on_risk = VALUES(orders_on_risk),
+            orders_breached = VALUES(orders_breached),
+            avg_delay_sec = VALUES(avg_delay_sec),
+            refreshed_at = CURRENT_TIMESTAMP
+        `;
 
-  async getAllBrandCountryCombinations(): Promise<Array<{brand_code: string, country_code: string, source_table: string}>> {
-    const discoveries = await this.discoverTables();
-    return discoveries.map(d => ({
-      brand_code: d.brand_code,
-      country_code: d.country_code,
-      source_table: d.source_table
-    }));
+        await analyticsDb.execute(summaryQuery);
+      }
+      
+      console.log(`Generated daily summary for all stages: ${brand}_${country}`);
+    } catch (error) {
+      console.warn(`Failed to generate daily summary for ${brand}_${country}:`, error);
+    }
   }
 } 

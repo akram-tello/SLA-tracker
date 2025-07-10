@@ -24,6 +24,7 @@ import {
 import { Search, Download, ArrowLeft } from "lucide-react"
 import Link from "next/link"
 import { OrderFilters } from "@/lib/types"
+import { useSearchParams } from "next/navigation"
 
 interface Order {
   order_no: string
@@ -39,6 +40,7 @@ interface Order {
   brand_name: string
   country_code: string
   sla_status: string
+  filtered_stage?: string
 }
 
 interface OrdersResponse {
@@ -50,12 +52,27 @@ interface OrdersResponse {
 }
 
 export default function OrdersPage() {
+  const searchParams = useSearchParams()
   const [orders, setOrders] = useState<Order[]>([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState("")
-  const [filters, setFilters] = useState<OrderFilters>({
-    page: 1,
-    limit: 20,
+  
+  // Initialize filters from URL params (for drill-down from dashboard)
+  const [filters, setFilters] = useState<OrderFilters>(() => {
+    const initialFilters: OrderFilters = {
+      page: 1,
+      limit: 20,
+    }
+    
+    // Parse URL parameters
+    if (searchParams.get('sla_status')) initialFilters.sla_status = searchParams.get('sla_status') || undefined
+    if (searchParams.get('stage')) initialFilters.stage = searchParams.get('stage') || undefined  
+    if (searchParams.get('brand')) initialFilters.brand = searchParams.get('brand') || undefined
+    if (searchParams.get('country')) initialFilters.country = searchParams.get('country') || undefined
+    if (searchParams.get('from_date')) initialFilters.from_date = searchParams.get('from_date') || undefined
+    if (searchParams.get('to_date')) initialFilters.to_date = searchParams.get('to_date') || undefined
+    
+    return initialFilters
   })
   const [pagination, setPagination] = useState({
     total: 0,
@@ -76,6 +93,10 @@ export default function OrdersPage() {
       if (currentFilters.order_no) params.append('order_no', currentFilters.order_no)
       if (currentFilters.brand) params.append('brand', currentFilters.brand)
       if (currentFilters.country) params.append('country', currentFilters.country)
+      if (currentFilters.sla_status) params.append('sla_status', currentFilters.sla_status)
+      if (currentFilters.stage) params.append('stage', currentFilters.stage)
+      if (currentFilters.from_date) params.append('from_date', currentFilters.from_date)
+      if (currentFilters.to_date) params.append('to_date', currentFilters.to_date)
 
       const response = await fetch(`/api/v1/orders?${params}`)
       if (!response.ok) throw new Error('Failed to fetch orders')
@@ -180,8 +201,24 @@ export default function OrdersPage() {
               </Button>
             </Link>
             <div>
-              <h1 className="text-3xl font-bold text-gray-900">Orders Backlog</h1>
-              <p className="text-gray-600 mt-1">View and manage order details</p>
+              <h1 className="text-3xl font-bold text-gray-900">
+                Orders Backlog
+                {filters.stage && (
+                  <span className="text-lg font-normal text-gray-600 ml-2">
+                    - {filters.stage} Stage
+                  </span>
+                )}
+              </h1>
+              <p className="text-gray-600 mt-1">
+                {filters.sla_status && filters.stage 
+                  ? `Showing ${filters.sla_status.toLowerCase()} orders in ${filters.stage.toLowerCase()} stage`
+                  : filters.sla_status 
+                  ? `Showing ${filters.sla_status.toLowerCase()} orders`
+                  : filters.stage
+                  ? `Showing orders in ${filters.stage.toLowerCase()} stage`
+                  : "View and manage order details"
+                }
+              </p>
             </div>
           </div>
           <Button onClick={exportToCSV} disabled={orders.length === 0}>

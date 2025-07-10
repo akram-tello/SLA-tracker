@@ -13,34 +13,55 @@ export async function GET(request: NextRequest) {
       order_no: searchParams.get('order_no') || undefined,
       brand: searchParams.get('brand') || undefined,
       country: searchParams.get('country') || undefined,
+      sla_status: searchParams.get('sla_status') || undefined,
+      stage: searchParams.get('stage') || undefined,
+      from_date: searchParams.get('from_date') || undefined,
+      to_date: searchParams.get('to_date') || undefined,
     });
 
     const db = await getAnalyticsDb();
     
-    // Get available table names for brand-country combinations
+    // Get available order tables
     const [tableRows] = await db.execute(`
       SELECT TABLE_NAME 
       FROM INFORMATION_SCHEMA.TABLES 
-      WHERE TABLE_SCHEMA = ? AND TABLE_NAME LIKE 'orders_%'
-    `, [process.env.ANALYTICS_DB_NAME || 'sla_tracker']);
+      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME LIKE 'orders_%'
+    `);
 
-    const tables = (tableRows as Record<string, string>[])
-      .map(row => row.TABLE_NAME)
-      .filter(tableName => {
-        if (filters.brand || filters.country) {
-          const parts = tableName.replace('orders_', '').split('_');
-          const brandCode = parts.slice(0, -1).join('_');
-          const countryCode = parts[parts.length - 1];
-          
-          if (filters.brand && !brandCode.includes(filters.brand.replace(/\s+/g, '').substring(0, 3).toUpperCase())) {
-            return false;
+    let tables = (tableRows as { TABLE_NAME: string }[]).map(row => row.TABLE_NAME);
+    
+    // Apply brand/country filters to table selection
+    if (filters.brand || filters.country) {
+      tables = tables.filter(tableName => {
+        const parts = tableName.replace('orders_', '').split('_');
+        if (parts.length < 2) return false;
+        
+        const brandCode = parts.slice(0, -1).join('_');
+        const countryCode = parts[parts.length - 1];
+        
+        if (filters.brand) {
+          // Map brand filter to brand code
+          let expectedBrand = '';
+          if (filters.brand.toLowerCase().includes('victoria') || filters.brand.toLowerCase() === 'vs') {
+            expectedBrand = 'vs';
+          } else if (filters.brand.toLowerCase().includes('bbw') || filters.brand.toLowerCase().includes('bath')) {
+            expectedBrand = 'bbw';
+          } else if (filters.brand.toLowerCase().includes('rituals')) {
+            expectedBrand = 'rituals';
           }
-          if (filters.country && countryCode !== filters.country) {
+          
+          if (expectedBrand && brandCode !== expectedBrand) {
             return false;
           }
         }
+        
+        if (filters.country && countryCode.toLowerCase() !== filters.country.toLowerCase()) {
+          return false;
+        }
+        
         return true;
       });
+    }
 
     if (tables.length === 0) {
       return NextResponse.json({
@@ -52,9 +73,13 @@ export async function GET(request: NextRequest) {
       });
     }
 
+    // Build a simple query for the first available table (for MVP)
+    // In production, you'd want to handle multiple tables properly
+    const mainTable = tables[0];
+    
     // Build WHERE conditions
     const whereConditions: string[] = [];
-    const params: (string | number | boolean)[] = [];
+    const params: (string | number)[] = [];
 
     if (filters.order_status) {
       whereConditions.push('order_status = ?');
@@ -66,101 +91,136 @@ export async function GET(request: NextRequest) {
       params.push(`%${filters.order_no}%`);
     }
 
-    if (filters.risk_flag !== undefined) {
-      // Calculate risk condition based on TAT config
-      whereConditions.push(`
-        EXISTS (
-          SELECT 1 FROM tat_config t 
-          WHERE t.brand_name = o.brand_name 
-          AND t.country_code = o.country_code
-          AND (
-            (o.processed_tat IS NOT NULL AND o.processed_tat > t.processed_tat * t.risk_pct / 100) OR
-            (o.shipped_tat IS NOT NULL AND o.shipped_tat > t.shipped_tat * t.risk_pct / 100) OR
-            (o.delivered_tat IS NOT NULL AND o.delivered_tat > t.delivered_tat * t.risk_pct / 100)
-          )
-        ) = ?
-      `);
-      params.push(filters.risk_flag);
+    if (filters.from_date && filters.to_date) {
+      whereConditions.push('order_date BETWEEN ? AND ?');
+      params.push(filters.from_date, filters.to_date);
     }
 
     const whereClause = whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : '';
 
-    // Build UNION query for all relevant tables
-    const unionQueries = tables.map(table => `
-      SELECT 
-        order_no, order_status, shipping_status, order_date,
-        processing_time, shipped_time, delivered_time,
-        processed_tat, shipped_tat, delivered_tat,
-        brand_name, country_code,
-        CASE
-          WHEN EXISTS (
-            SELECT 1 FROM tat_config t 
-            WHERE t.brand_name = o.brand_name 
-            AND t.country_code = o.country_code
-            AND (
-              (o.processed_tat IS NOT NULL AND o.processed_tat > t.processed_tat) OR
-              (o.shipped_tat IS NOT NULL AND o.shipped_tat > t.shipped_tat) OR
-              (o.delivered_tat IS NOT NULL AND o.delivered_tat > t.delivered_tat)
-            )
-          ) THEN 'Breached'
-          WHEN EXISTS (
-            SELECT 1 FROM tat_config t 
-            WHERE t.brand_name = o.brand_name 
-            AND t.country_code = o.country_code
-            AND (
-              (o.processed_tat IS NOT NULL AND o.processed_tat > t.processed_tat * t.risk_pct / 100) OR
-              (o.shipped_tat IS NOT NULL AND o.shipped_tat > t.shipped_tat * t.risk_pct / 100) OR
-              (o.delivered_tat IS NOT NULL AND o.delivered_tat > t.delivered_tat * t.risk_pct / 100)
-            )
-          ) THEN 'At Risk'
-          ELSE 'On Time'
-        END as sla_status
-      FROM ${table} o
+    // Build stage-specific SLA status calculation for formatted TAT strings
+    const getSLAStatusCase = (stage?: string) => {
+      const parseTATToMinutes = (tatField: string) => `
+        COALESCE(
+          CASE WHEN ${tatField} REGEXP '[0-9]+d' THEN 
+            CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(${tatField}, 'd', 1), ' ', -1) AS UNSIGNED) * 1440 
+          ELSE 0 END +
+          CASE WHEN ${tatField} REGEXP '[0-9]+h' THEN 
+            CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(${tatField}, 'h', 1), ' ', -1) AS UNSIGNED) * 60 
+          ELSE 0 END +
+          CASE WHEN ${tatField} REGEXP '[0-9]+m' THEN 
+            CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(${tatField}, 'm', 1), ' ', -1) AS UNSIGNED)
+          ELSE 0 END, 0
+        )
+      `;
+
+      if (stage === 'Processed') {
+        return `
+          CASE
+            WHEN o.processed_tat IS NOT NULL THEN
+              CASE 
+                WHEN ${parseTATToMinutes('o.processed_tat')} > ${parseTATToMinutes('tc.processed_tat')} THEN 'Breached'
+                WHEN ${parseTATToMinutes('o.processed_tat')} > (${parseTATToMinutes('tc.processed_tat')} * tc.risk_pct / 100) THEN 'At Risk'
+                ELSE 'On Time'
+              END
+            ELSE 'On Time'
+          END
+        `;
+      } else if (stage === 'Shipped') {
+        return `
+          CASE
+            WHEN o.shipped_tat IS NOT NULL THEN
+              CASE 
+                WHEN ${parseTATToMinutes('o.shipped_tat')} > ${parseTATToMinutes('tc.shipped_tat')} THEN 'Breached'
+                WHEN ${parseTATToMinutes('o.shipped_tat')} > (${parseTATToMinutes('tc.shipped_tat')} * tc.risk_pct / 100) THEN 'At Risk'
+                ELSE 'On Time'
+              END
+            ELSE 'On Time'
+          END
+        `;
+      } else if (stage === 'Delivered') {
+        return `
+          CASE
+            WHEN o.delivered_tat IS NOT NULL THEN
+              CASE 
+                WHEN ${parseTATToMinutes('o.delivered_tat')} > ${parseTATToMinutes('tc.delivered_tat')} THEN 'Breached'
+                WHEN ${parseTATToMinutes('o.delivered_tat')} > (${parseTATToMinutes('tc.delivered_tat')} * tc.risk_pct / 100) THEN 'At Risk'
+                ELSE 'On Time'
+              END
+            ELSE 'On Time'
+          END
+        `;
+      } else {
+        // Default to processed stage if no stage specified
+        return `
+          CASE
+            WHEN o.processed_tat IS NOT NULL THEN
+              CASE 
+                WHEN ${parseTATToMinutes('o.processed_tat')} > ${parseTATToMinutes('tc.processed_tat')} THEN 'Breached'
+                WHEN ${parseTATToMinutes('o.processed_tat')} > (${parseTATToMinutes('tc.processed_tat')} * tc.risk_pct / 100) THEN 'At Risk'
+                ELSE 'On Time'
+              END
+            ELSE 'On Time'
+          END
+        `;
+      }
+    };
+
+    const slaStatusCase = getSLAStatusCase(filters.stage);
+
+    // Get total count with stage-specific SLA logic
+    const countQuery = `
+      SELECT COUNT(*) as total 
+      FROM ${mainTable} o
+      LEFT JOIN tat_config tc ON o.brand_name = tc.brand_name AND o.country_code = tc.country_code
       ${whereClause}
-    `).join(' UNION ALL ');
-
-    // For now, use a simpler approach without complex parameter binding
-    // Build queries with direct substitution for the initial version
-    let finalUnionQueries = unionQueries;
-    
-    // Replace parameter placeholders with actual values for WHERE conditions
-    if (filters.order_status) {
-      finalUnionQueries = finalUnionQueries.replace(/WHERE.*?=.*?\?/g, () => {
-        return `WHERE order_status = '${filters.order_status}'`;
-      });
+      ${filters.sla_status ? `${whereClause ? 'AND' : 'WHERE'} (${slaStatusCase}) = ?` : ''}
+    `;
+    const countParams = [...params];
+    if (filters.sla_status) {
+      countParams.push(filters.sla_status);
     }
-    
-    if (filters.order_no) {
-      const whereReplacement = filters.order_status ? 'AND' : 'WHERE';
-      finalUnionQueries = finalUnionQueries.replace(/AND order_no LIKE \?|WHERE order_no LIKE \?/g, () => {
-        return `${whereReplacement} order_no LIKE '%${filters.order_no}%'`;
-      });
-    }
-
-    // Get total count
-    const countQuery = `SELECT COUNT(*) as total FROM (${finalUnionQueries}) as combined`;
-    const [countRows] = await db.execute(countQuery);
-    const total = (countRows as Record<string, number>[])[0].total;
+    const [countRows] = await db.execute(countQuery, countParams);
+    const total = (countRows as { total: number }[])[0].total;
 
     // Get paginated results
     const offset = (filters.page - 1) * filters.limit;
-    const dataQuery = `${finalUnionQueries} ORDER BY order_date DESC LIMIT ${filters.limit} OFFSET ${offset}`;
-    const [dataRows] = await db.execute(dataQuery);
+    const dataQuery = `
+      SELECT 
+        o.order_no, o.order_status, o.shipping_status, o.order_date,
+        o.processing_time, o.shipped_time, o.delivered_time,
+        o.processed_tat, o.shipped_tat, o.delivered_tat,
+        o.brand_name, o.country_code,
+        ${slaStatusCase} as sla_status,
+        '${filters.stage || 'Processed'}' as filtered_stage
+      FROM ${mainTable} o
+      LEFT JOIN tat_config tc ON o.brand_name = tc.brand_name AND o.country_code = tc.country_code
+      ${whereClause}
+      ${filters.sla_status ? `${whereClause ? 'AND' : 'WHERE'} (${slaStatusCase}) = ?` : ''}
+      ORDER BY o.order_date DESC 
+      LIMIT ${filters.limit} OFFSET ${offset}
+    `;
+    
+    if (filters.sla_status) {
+      params.push(filters.sla_status);
+    }
+
+    const [dataRows] = await db.execute(dataQuery, params);
 
     const orders = (dataRows as Record<string, string | number | Date | null>[]).map(row => ({
-      order_no: String(row.order_no),
-      order_status: String(row.order_status),
-      shipping_status: String(row.shipping_status),
+      order_no: String(row.order_no || ''),
+      order_status: String(row.order_status || ''),
+      shipping_status: String(row.shipping_status || ''),
       order_date: row.order_date,
       processing_time: row.processing_time,
       shipped_time: row.shipped_time,
       delivered_time: row.delivered_time,
-      processed_tat: row.processed_tat ? Number(row.processed_tat) : null,
-      shipped_tat: row.shipped_tat ? Number(row.shipped_tat) : null,
-      delivered_tat: row.delivered_tat ? Number(row.delivered_tat) : null,
-      brand_name: String(row.brand_name),
-      country_code: String(row.country_code),
-      sla_status: String(row.sla_status),
+      processed_tat: row.processed_tat ? String(row.processed_tat) : null,
+      shipped_tat: row.shipped_tat ? String(row.shipped_tat) : null,
+      delivered_tat: row.delivered_tat ? String(row.delivered_tat) : null,
+      brand_name: String(row.brand_name || ''),
+      country_code: String(row.country_code || ''),
+      sla_status: String(row.sla_status || 'Unknown'),
     }));
 
     return NextResponse.json({
@@ -169,11 +229,20 @@ export async function GET(request: NextRequest) {
       page: filters.page,
       limit: filters.limit,
       total_pages: Math.ceil(total / filters.limit),
+      debug: {
+        tables_found: tables.length,
+        main_table: mainTable,
+        where_clause: whereClause
+      }
     });
+
   } catch (error) {
     console.error('Orders API error:', error);
     return NextResponse.json(
-      { error: 'Internal server error' },
+      { 
+        error: 'Internal server error',
+        message: error instanceof Error ? error.message : 'Unknown error'
+      },
       { status: 500 }
     );
   }

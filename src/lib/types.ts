@@ -6,9 +6,9 @@ export interface Order {
   processing_time?: Date;
   shipped_time?: Date;
   delivered_time?: Date;
-  processed_tat?: number; // minutes
-  shipped_tat?: number; // days
-  delivered_tat?: number; // days
+  processed_tat?: string; // formatted time string (e.g., "2h 30m")
+  shipped_tat?: string; // formatted time string (e.g., "2d 5h")
+  delivered_tat?: string; // formatted time string (e.g., "7d 12h")
   order_date: Date;
   brand_name: string;
   country_code: string;
@@ -18,9 +18,9 @@ export interface Order {
 export interface TatConfig {
   brand_name: string;
   country_code: string;
-  processed_tat: number; // minutes
-  shipped_tat: number; // days
-  delivered_tat: number; // days
+  processed_tat: string; // formatted time string (e.g., "2h 30m")
+  shipped_tat: string; // formatted time string (e.g., "2d 5h")
+  delivered_tat: string; // formatted time string (e.g., "7d 12h")
   risk_pct: number; // percentage
   created_at: Date;
   updated_at: Date;
@@ -39,11 +39,20 @@ export interface SLADailySummary {
   refreshed_at: Date;
 }
 
+export interface StageKPI {
+  stage: string;
+  total_orders: number;
+  sla_breached: number;
+  on_risk: number;
+  completed: number;
+}
+
 export interface DashboardSummary {
   total_orders: number;
   sla_breached: number;
   on_risk: number;
   completed: number;
+  stage_kpis: StageKPI[];
   chart_data: ChartData[];
   stage_breakdown: StageBreakdown[];
 }
@@ -78,6 +87,10 @@ export interface OrderFilters {
   order_no?: string;
   brand?: string;
   country?: string;
+  sla_status?: string;
+  stage?: string;
+  from_date?: string;
+  to_date?: string;
 }
 
 // ETL Configuration and Discovery Types

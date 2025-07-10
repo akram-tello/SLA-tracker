@@ -31,67 +31,84 @@ export async function GET(request: NextRequest) {
     
     const whereClause = whereConditions.join(' AND ');
 
-    // Get KPI totals
-    const [kpiRows] = await db.execute(`
-      SELECT 
-        SUM(orders_total) as total_orders,
-        SUM(orders_breached) as sla_breached,
-        SUM(orders_on_risk) as on_risk,
-        SUM(orders_on_time) as completed
-      FROM sla_daily_summary 
-      WHERE ${whereClause}
-    `, params);
+    // Execute all queries in parallel for better performance
+    const [stageKpiRows, chartRows, breakdownRows] = await Promise.all([
+      // Get KPI totals by stage
+      db.execute(`
+        SELECT 
+          stage,
+          SUM(orders_total) as total_orders,
+          SUM(orders_breached) as sla_breached,
+          SUM(orders_on_risk) as on_risk,
+          SUM(orders_on_time) as completed
+        FROM sla_daily_summary 
+        WHERE ${whereClause}
+        GROUP BY stage
+        ORDER BY FIELD(stage, 'Processed', 'Shipped', 'Delivered')
+      `, params),
 
-    // Get chart data by stage
-    const [chartRows] = await db.execute(`
-      SELECT 
-        stage,
-        SUM(orders_on_time) as on_time,
-        SUM(orders_on_risk) as on_risk,
-        SUM(orders_breached) as breached
-      FROM sla_daily_summary 
-      WHERE ${whereClause}
-      GROUP BY stage
-      ORDER BY FIELD(stage, 'Processed', 'Shipped', 'Delivered')
-    `, params);
+      // Get chart data by stage
+      db.execute(`
+        SELECT 
+          stage,
+          SUM(orders_on_time) as on_time,
+          SUM(orders_on_risk) as on_risk,
+          SUM(orders_breached) as breached
+        FROM sla_daily_summary 
+        WHERE ${whereClause}
+        GROUP BY stage
+        ORDER BY FIELD(stage, 'Processed', 'Shipped', 'Delivered')
+      `, params),
 
-    // Get stage breakdown with average delay
-    const [breakdownRows] = await db.execute(`
-      SELECT 
-        stage,
-        SUM(orders_on_time) as on_time,
-        SUM(orders_breached) as breached,
-        SUM(orders_on_risk) as on_risk,
-        CASE 
-          WHEN SUM(orders_total) > 0 
-          THEN ROUND(SUM(avg_delay_sec * orders_total) / SUM(orders_total) / 3600, 2)
-          ELSE 0 
-        END as avg_delay_hours
-      FROM sla_daily_summary 
-      WHERE ${whereClause}
-      GROUP BY stage
-      ORDER BY FIELD(stage, 'Processed', 'Shipped', 'Delivered')
-    `, params);
+      // Get stage breakdown with average delay (only for breached orders)
+      db.execute(`
+        SELECT 
+          stage,
+          SUM(orders_on_time) as on_time,
+          SUM(orders_breached) as breached,
+          SUM(orders_on_risk) as on_risk,
+          CASE 
+            WHEN SUM(orders_breached) > 0 
+            THEN ROUND(SUM(CASE WHEN orders_breached > 0 THEN avg_delay_sec * orders_breached ELSE 0 END) / SUM(orders_breached) / 3600, 2)
+            ELSE 0 
+          END as avg_delay_hours
+        FROM sla_daily_summary 
+        WHERE ${whereClause}
+        GROUP BY stage
+        ORDER BY FIELD(stage, 'Processed', 'Shipped', 'Delivered')
+      `, params)
+    ]);
 
-    const kpi = (kpiRows as Record<string, number>[])[0] || {
-      total_orders: 0,
-      sla_breached: 0,
-      on_risk: 0,
-      completed: 0
-    };
+    // Transform stage KPI data
+    const stageKpis = (stageKpiRows[0] as Record<string, string | number>[]).map(row => ({
+      stage: String(row.stage),
+      total_orders: Number(row.total_orders) || 0,
+      sla_breached: Number(row.sla_breached) || 0,
+      on_risk: Number(row.on_risk) || 0,
+      completed: Number(row.completed) || 0,
+    }));
+
+    // Calculate overall totals for backwards compatibility if needed
+    const overallTotals = stageKpis.reduce((acc, stage) => ({
+      total_orders: acc.total_orders + stage.total_orders,
+      sla_breached: acc.sla_breached + stage.sla_breached,
+      on_risk: acc.on_risk + stage.on_risk,
+      completed: acc.completed + stage.completed,
+    }), { total_orders: 0, sla_breached: 0, on_risk: 0, completed: 0 });
 
     const summary: DashboardSummary = {
-      total_orders: kpi.total_orders || 0,
-      sla_breached: kpi.sla_breached || 0,
-      on_risk: kpi.on_risk || 0,
-      completed: kpi.completed || 0,
-      chart_data: (chartRows as Record<string, string | number>[]).map(row => ({
+      total_orders: overallTotals.total_orders,
+      sla_breached: overallTotals.sla_breached,
+      on_risk: overallTotals.on_risk,
+      completed: overallTotals.completed,
+      stage_kpis: stageKpis,
+      chart_data: (chartRows[0] as Record<string, string | number>[]).map(row => ({
         stage: String(row.stage),
         on_time: Number(row.on_time) || 0,
         on_risk: Number(row.on_risk) || 0,
         breached: Number(row.breached) || 0,
       })),
-      stage_breakdown: (breakdownRows as Record<string, string | number>[]).map(row => ({
+      stage_breakdown: (breakdownRows[0] as Record<string, string | number>[]).map(row => ({
         stage: String(row.stage),
         on_time: Number(row.on_time) || 0,
         breached: Number(row.breached) || 0,

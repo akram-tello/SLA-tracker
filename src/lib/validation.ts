@@ -15,14 +15,18 @@ export const orderFiltersSchema = z.object({
   order_no: z.string().optional(),
   brand: z.string().optional(),
   country: z.string().optional(),
+  sla_status: z.string().optional(),
+  stage: z.string().optional(),
+  from_date: z.string().optional(),
+  to_date: z.string().optional(),
 });
 
 export const tatConfigSchema = z.object({
   brand_name: z.string().min(1),
   country_code: z.string().min(2).max(3),
-  processed_tat: z.number().min(1),
-  shipped_tat: z.number().min(1),
-  delivered_tat: z.number().min(1),
+  processed_tat: z.string().min(1),
+  shipped_tat: z.string().min(1),
+  delivered_tat: z.string().min(1),
   risk_pct: z.number().min(1).max(100).default(80),
 });
 
