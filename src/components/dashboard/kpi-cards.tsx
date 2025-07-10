@@ -1,15 +1,7 @@
 "use client"
 
-import { useState, useEffect } from "react"
-import { format, startOfMonth, endOfMonth, subMonths } from "date-fns"
 import { useRouter } from "next/navigation"
-
-interface KPIData {
-  total_orders: number
-  sla_breached: number
-  on_risk: number
-  completed: number
-}
+import { useDashboard } from "@/lib/dashboard-context"
 
 // Custom Tailwind Card component
 const Card = ({ children, className = "", onClick }: { children: React.ReactNode; className?: string; onClick?: () => void }) => (
@@ -20,51 +12,14 @@ const Card = ({ children, className = "", onClick }: { children: React.ReactNode
 
 export function KPICards() {
   const router = useRouter()
-  const [data, setData] = useState<KPIData>({
-    total_orders: 0,
-    sla_breached: 0,
-    on_risk: 0,
-    completed: 0
-  })
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    const fetchKPIData = async () => {
-      try {
-        const fromDate = format(startOfMonth(subMonths(new Date(), 1)), 'yyyy-MM-dd')
-        const toDate = format(endOfMonth(subMonths(new Date(), 1)), 'yyyy-MM-dd')
-        
-        const params = new URLSearchParams({
-          from_date: fromDate,
-          to_date: toDate,
-        })
-
-        const response = await fetch(`/api/v1/dashboard/summary?${params}`)
-        if (!response.ok) throw new Error('Failed to fetch KPI data')
-        
-        const result = await response.json()
-        setData({
-          total_orders: result.total_orders || 0,
-          sla_breached: result.sla_breached || 0,
-          on_risk: result.on_risk || 0,
-          completed: result.completed || 0
-        })
-      } catch (error) {
-        console.error('Error fetching KPI data:', error)
-      } finally {
-        setLoading(false)
-      }
-    }
-
-    fetchKPIData()
-  }, [])
-
-  const breachedPercentage = data.total_orders > 0 ? ((data.sla_breached / data.total_orders) * 100).toFixed(1) : '0'
-  const riskPercentage = data.total_orders > 0 ? ((data.on_risk / data.total_orders) * 100).toFixed(1) : '0'
-  const completedPercentage = data.total_orders > 0 ? ((data.completed / data.total_orders) * 100).toFixed(1) : '0'
+  const { dashboardData, loading, error, filters } = useDashboard()
 
   const handleKPIClick = (slaStatus: string) => {
     const params = new URLSearchParams()
+    if (filters.from_date) params.append('from_date', filters.from_date)
+    if (filters.to_date) params.append('to_date', filters.to_date)
+    if (filters.brand) params.append('brand', filters.brand)
+    if (filters.country) params.append('country', filters.country)
     if (slaStatus !== 'all') params.append('sla_status', slaStatus)
     router.push(`/orders?${params.toString()}`)
   }
@@ -83,6 +38,35 @@ export function KPICards() {
       </div>
     )
   }
+
+  if (error) {
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <Card className="border-0 shadow-sm col-span-full">
+          <div className="text-center py-8">
+            <div className="text-red-500 mb-2">
+              <svg className="w-12 h-12 mx-auto" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+              </svg>
+            </div>
+            <p className="text-gray-600 dark:text-gray-400">Failed to load KPI data</p>
+            <p className="text-sm text-gray-500 dark:text-gray-500 mt-1">{error}</p>
+          </div>
+        </Card>
+      </div>
+    )
+  }
+
+  const data = {
+    total_orders: dashboardData?.total_orders || 0,
+    sla_breached: dashboardData?.sla_breached || 0,
+    on_risk: dashboardData?.on_risk || 0,
+    completed: dashboardData?.completed || 0
+  }
+
+  const breachedPercentage = data.total_orders > 0 ? ((data.sla_breached / data.total_orders) * 100).toFixed(1) : '0'
+  const riskPercentage = data.total_orders > 0 ? ((data.on_risk / data.total_orders) * 100).toFixed(1) : '0'
+  const completedPercentage = data.total_orders > 0 ? ((data.completed / data.total_orders) * 100).toFixed(1) : '0'
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">

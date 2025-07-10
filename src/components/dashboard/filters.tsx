@@ -2,6 +2,7 @@
 
 import { useState } from "react"
 import { format, subDays, startOfMonth, endOfMonth, subMonths } from "date-fns"
+import { useDashboard } from "@/lib/dashboard-context"
 
 // Custom Tailwind components
 const Button = ({ 
@@ -96,24 +97,50 @@ const COUNTRIES = [
 ]
 
 export function Filters() {
-  const [fromDate, setFromDate] = useState<Date>(startOfMonth(subMonths(new Date(), 1)))
-  const [toDate, setToDate] = useState<Date>(endOfMonth(subMonths(new Date(), 1)))
-  const [selectedBrand, setSelectedBrand] = useState<string>("all")
-  const [selectedCountry, setSelectedCountry] = useState<string>("all")
+  const { filters, setFilters } = useDashboard()
+  
+  // Local state for form inputs
+  const [fromDate, setFromDate] = useState<Date>(new Date(filters.from_date))
+  const [toDate, setToDate] = useState<Date>(new Date(filters.to_date))
+  const [selectedBrand, setSelectedBrand] = useState<string>(filters.brand || "all")
+  const [selectedCountry, setSelectedCountry] = useState<string>(filters.country || "all")
 
   const handleQuickDate = (quickDate: typeof QUICK_DATES[0]) => {
     const { from, to } = quickDate.getValue()
     setFromDate(from)
     setToDate(to)
+    
+    // Apply the quick date selection immediately
+    setFilters({
+      from_date: format(from, 'yyyy-MM-dd'),
+      to_date: format(to, 'yyyy-MM-dd'),
+      brand: selectedBrand === "all" ? undefined : selectedBrand,
+      country: selectedCountry === "all" ? undefined : selectedCountry,
+    })
   }
 
   const handleApplyFilters = () => {
-    // In a real implementation, this would trigger a callback or event
-    console.log('Applied filters:', {
+    setFilters({
       from_date: format(fromDate, 'yyyy-MM-dd'),
       to_date: format(toDate, 'yyyy-MM-dd'),
       brand: selectedBrand === "all" ? undefined : selectedBrand,
       country: selectedCountry === "all" ? undefined : selectedCountry,
+    })
+  }
+
+  const handleReset = () => {
+    const lastMonth = subMonths(new Date(), 1)
+    const resetFromDate = startOfMonth(lastMonth)
+    const resetToDate = endOfMonth(lastMonth)
+    
+    setFromDate(resetFromDate)
+    setToDate(resetToDate)
+    setSelectedBrand("all")
+    setSelectedCountry("all")
+    
+    setFilters({
+      from_date: format(resetFromDate, 'yyyy-MM-dd'),
+      to_date: format(resetToDate, 'yyyy-MM-dd'),
     })
   }
 
@@ -195,12 +222,17 @@ export function Filters() {
           </div>
         </div>
 
-        {/* Apply Button */}
+        {/* Action Buttons */}
         <div className="flex flex-col gap-3">
-          <label className="text-sm font-medium text-gray-700 dark:text-gray-300 invisible">Apply</label>
-          <Button onClick={handleApplyFilters} className="w-32">
-            Apply Filters
-          </Button>
+          <label className="text-sm font-medium text-gray-700 dark:text-gray-300 invisible">Actions</label>
+          <div className="flex gap-2">
+            <Button onClick={handleApplyFilters} className="w-32">
+              Apply Filters
+            </Button>
+            <Button onClick={handleReset} color="gray" className="w-20">
+              Reset
+            </Button>
+          </div>
         </div>
       </div>
     </div>

@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState, useEffect } from "react"
+import React, { useState, useEffect, Suspense } from "react"
 import { format } from "date-fns"
 import { Search, Download, ArrowLeft } from "lucide-react"
 import Link from "next/link"
@@ -181,7 +181,7 @@ interface OrdersResponse {
   total_pages: number
 }
 
-export default function OrdersPage() {
+function OrdersContent() {
   const searchParams = useSearchParams()
   const [orders, setOrders] = useState<Order[]>([])
   const [loading, setLoading] = useState(true)
@@ -543,5 +543,13 @@ export default function OrdersPage() {
         </Card>
       </div>
     </div>
+  )
+}
+
+export default function OrdersPage() {
+  return (
+    <Suspense fallback={<div>Loading...</div>}>
+      <OrdersContent />
+    </Suspense>
   )
 } 

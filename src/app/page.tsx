@@ -1,8 +1,11 @@
 "use client"
 
-import React, { Suspense, useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Moon, Sun, User } from 'lucide-react';
 import { useTheme } from 'next-themes';
+
+// Import DashboardProvider and hook
+import { DashboardProvider, useDashboard } from '@/lib/dashboard-context';
 
 // Lazy load dashboard components
 import { KPICards } from '@/components/dashboard/kpi-cards';
@@ -17,21 +20,12 @@ const Card = ({ children, className = "" }: { children: React.ReactNode; classNa
   </div>
 );
 
-const Spinner = ({ size = "md" }: { size?: "sm" | "md" | "lg" }) => {
-  const sizeClasses = {
-    sm: "h-4 w-4",
-    md: "h-8 w-8", 
-    lg: "h-12 w-12"
-  };
-  
-  return (
-    <div className={`animate-spin rounded-full border-b-2 border-blue-600 ${sizeClasses[size]}`}></div>
-  );
-};
+// Spinner component removed as it's no longer needed with dashboard context
 
-export default function Dashboard() {
+function DashboardContent() {
   const [mounted, setMounted] = useState(false);
   const { theme, setTheme } = useTheme();
+  const { refreshData } = useDashboard();
 
   // Ensure theme is mounted to prevent hydration mismatch
   useEffect(() => {
@@ -83,72 +77,21 @@ export default function Dashboard() {
 
         {/* Filters Section */}
         <Card className="mb-8 border-0 shadow-sm">
-          <Suspense fallback={
-            <div className="flex justify-center p-8">
-              <Spinner size="lg" />
-            </div>
-          }>
-            <Filters />
-          </Suspense>
+          <Filters />
         </Card>
 
         {/* KPI Cards */}
         <div className="mb-8">
-          <Suspense fallback={
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-              {Array.from({ length: 4 }).map((_, i) => (
-                <Card key={i} className="border-0 shadow-sm">
-                  <div className="animate-pulse">
-                    <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-1/2 mb-2"></div>
-                    <div className="h-8 bg-gray-200 dark:bg-gray-700 rounded w-3/4"></div>
-                  </div>
-                </Card>
-              ))}
-            </div>
-          }>
-            <KPICards />
-          </Suspense>
+          <KPICards />
         </div>
 
         {/* Charts and Analytics */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
           {/* SLA Performance Chart */}
-          <Card className="border-0 shadow-sm">
-            <div className="mb-4">
-              <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
-                SLA Performance Trend
-              </h2>
-              <p className="text-sm text-gray-600 dark:text-gray-400">
-                Track performance over time
-              </p>
-            </div>
-            <Suspense fallback={
-              <div className="flex justify-center items-center h-64">
-                <Spinner size="lg" />
-              </div>
-            }>
-              <SLAChart />
-            </Suspense>
-          </Card>
+          <SLAChart />
 
           {/* Stage Breakdown */}
-          <Card className="border-0 shadow-sm">
-            <div className="mb-4">
-              <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
-                Performance by Stage
-              </h2>
-              <p className="text-sm text-gray-600 dark:text-gray-400">
-                Breakdown across order processing stages
-              </p>
-            </div>
-            <Suspense fallback={
-              <div className="flex justify-center items-center h-64">
-                <Spinner size="lg" />
-              </div>
-            }>
-              <StageBreakdown />
-            </Suspense>
-          </Card>
+          <StageBreakdown />
         </div>
 
         {/* Quick Actions */}
@@ -169,7 +112,10 @@ export default function Dashboard() {
                 </svg>
                 Export Data
               </button>
-              <button className="inline-flex items-center px-4 py-2 border border-transparent rounded-lg text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 transition-colors">
+              <button 
+                onClick={refreshData}
+                className="inline-flex items-center px-4 py-2 border border-transparent rounded-lg text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 transition-colors"
+              >
                 <svg className="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
                   <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd" />
                 </svg>
@@ -180,5 +126,13 @@ export default function Dashboard() {
         </Card>
       </main>
     </div>
+  );
+}
+
+export default function Dashboard() {
+  return (
+    <DashboardProvider>
+      <DashboardContent />
+    </DashboardProvider>
   );
 }
