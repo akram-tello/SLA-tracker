@@ -500,155 +500,323 @@ export class ETLService {
       const processedRiskThreshold = calculateRiskThreshold(String(processed_tat), Number(risk_pct));
       const shippedRiskThreshold = calculateRiskThreshold(String(shipped_tat), Number(risk_pct));
       const deliveredRiskThreshold = calculateRiskThreshold(String(delivered_tat), Number(risk_pct));
-      
-      // Generate summary for all three stages
-      const stages = [
-        {
-          stage: 'Processed',
-          tat_field: 'processed_tat',
-          sla_threshold: String(processed_tat),
-          risk_threshold: processedRiskThreshold
-        },
-        {
-          stage: 'Shipped', 
-          tat_field: 'shipped_tat',
-          sla_threshold: String(shipped_tat),
-          risk_threshold: shippedRiskThreshold
-        },
-        {
-          stage: 'Delivered',
-          tat_field: 'delivered_tat', 
-          sla_threshold: String(delivered_tat),
-          risk_threshold: deliveredRiskThreshold
-        }
-      ];
 
-      for (const stageConfig of stages) {
-        // Convert thresholds to minutes for SQL comparison
-        const slaThresholdMinutes = parseTimeStringToMinutes(stageConfig.sla_threshold);
-        const riskThresholdMinutes = parseTimeStringToMinutes(stageConfig.risk_threshold);
+      // First, clear existing summaries for this brand/country to avoid duplicates
+      await analyticsDb.execute(`
+        DELETE FROM sla_daily_summary 
+        WHERE brand_name = ? AND country_code = ?
+      `, [brandName, country.toUpperCase()]);
 
-        const summaryQuery = `
-          INSERT INTO sla_daily_summary (
-            summary_date, brand_name, brand_code, country_code, stage,
-            orders_total, orders_on_time, orders_on_risk, orders_breached, avg_delay_sec
+      // Generate summary with proper stage assignment based on current order status
+      // Each order appears in ONLY ONE stage based on its current status
+      const summaryQuery = `
+        INSERT INTO sla_daily_summary (
+          summary_date, brand_name, brand_code, country_code, stage,
+          orders_total, orders_on_time, orders_on_risk, orders_breached, avg_delay_sec
+        )
+        SELECT 
+          order_date,
+          brand_name,
+          '${brand}' as brand_code,
+          country_code,
+          CASE 
+            -- Order is in Delivered stage if it has delivered_time
+            WHEN delivered_time IS NOT NULL THEN 'Delivered'
+            -- Order is in Shipped stage if it has shipped_time but no delivered_time
+            WHEN shipped_time IS NOT NULL AND delivered_time IS NULL THEN 'Shipped'
+            -- Order is in Processed stage if it has processing_time but no shipped_time
+            WHEN processing_time IS NOT NULL AND shipped_time IS NULL THEN 'Processed'
+            -- Skip unconfirmed orders (Processing stage) - only track confirmed orders
+            ELSE NULL
+          END as current_stage,
+          COUNT(*) as orders_total,
+          
+          -- Calculate SLA performance based on the CURRENT stage
+          SUM(CASE 
+            WHEN delivered_time IS NOT NULL THEN
+              -- For delivered orders, check delivered_tat against delivered SLA
+              CASE WHEN (
+                COALESCE(
+                  CASE WHEN delivered_tat REGEXP '[0-9]+d' THEN 
+                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(delivered_tat, 'd', 1), ' ', -1) AS UNSIGNED) * 1440 
+                  ELSE 0 END +
+                  CASE WHEN delivered_tat REGEXP '[0-9]+h' THEN 
+                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(delivered_tat, 'h', 1), ' ', -1) AS UNSIGNED) * 60 
+                  ELSE 0 END +
+                  CASE WHEN delivered_tat REGEXP '[0-9]+m' THEN 
+                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(delivered_tat, 'm', 1), ' ', -1) AS UNSIGNED)
+                  ELSE 0 END, 0
+                ) <= ${parseTimeStringToMinutes(String(delivered_tat))}
+              ) THEN 1 ELSE 0 END
+            
+            WHEN shipped_time IS NOT NULL AND delivered_time IS NULL THEN
+              -- For shipped (not delivered) orders, check shipped_tat against shipped SLA
+              CASE WHEN (
+                COALESCE(
+                  CASE WHEN shipped_tat REGEXP '[0-9]+d' THEN 
+                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(shipped_tat, 'd', 1), ' ', -1) AS UNSIGNED) * 1440 
+                  ELSE 0 END +
+                  CASE WHEN shipped_tat REGEXP '[0-9]+h' THEN 
+                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(shipped_tat, 'h', 1), ' ', -1) AS UNSIGNED) * 60 
+                  ELSE 0 END +
+                  CASE WHEN shipped_tat REGEXP '[0-9]+m' THEN 
+                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(shipped_tat, 'm', 1), ' ', -1) AS UNSIGNED)
+                  ELSE 0 END, 0
+                ) <= ${parseTimeStringToMinutes(String(shipped_tat))}
+              ) THEN 1 ELSE 0 END
+              
+            WHEN processing_time IS NOT NULL AND shipped_time IS NULL THEN
+              -- For processed (not shipped) orders, check processed_tat against processed SLA
+              CASE WHEN (
+                COALESCE(
+                  CASE WHEN processed_tat REGEXP '[0-9]+d' THEN 
+                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(processed_tat, 'd', 1), ' ', -1) AS UNSIGNED) * 1440 
+                  ELSE 0 END +
+                  CASE WHEN processed_tat REGEXP '[0-9]+h' THEN 
+                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(processed_tat, 'h', 1), ' ', -1) AS UNSIGNED) * 60 
+                  ELSE 0 END +
+                  CASE WHEN processed_tat REGEXP '[0-9]+m' THEN 
+                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(processed_tat, 'm', 1), ' ', -1) AS UNSIGNED)
+                  ELSE 0 END, 0
+                ) <= ${parseTimeStringToMinutes(String(processed_tat))}
+              ) THEN 1 ELSE 0 END
+              
+            ELSE 1 -- Orders still processing are considered on-time for now
+          END) as orders_on_time,
+          
+          -- Calculate on-risk orders (between risk threshold and SLA threshold)
+          SUM(CASE 
+            WHEN delivered_time IS NOT NULL THEN
+              CASE WHEN (
+                COALESCE(
+                  CASE WHEN delivered_tat REGEXP '[0-9]+d' THEN 
+                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(delivered_tat, 'd', 1), ' ', -1) AS UNSIGNED) * 1440 
+                  ELSE 0 END +
+                  CASE WHEN delivered_tat REGEXP '[0-9]+h' THEN 
+                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(delivered_tat, 'h', 1), ' ', -1) AS UNSIGNED) * 60 
+                  ELSE 0 END +
+                  CASE WHEN delivered_tat REGEXP '[0-9]+m' THEN 
+                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(delivered_tat, 'm', 1), ' ', -1) AS UNSIGNED)
+                  ELSE 0 END, 0
+                ) > ${parseTimeStringToMinutes(deliveredRiskThreshold)} AND 
+                COALESCE(
+                  CASE WHEN delivered_tat REGEXP '[0-9]+d' THEN 
+                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(delivered_tat, 'd', 1), ' ', -1) AS UNSIGNED) * 1440 
+                  ELSE 0 END +
+                  CASE WHEN delivered_tat REGEXP '[0-9]+h' THEN 
+                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(delivered_tat, 'h', 1), ' ', -1) AS UNSIGNED) * 60 
+                  ELSE 0 END +
+                  CASE WHEN delivered_tat REGEXP '[0-9]+m' THEN 
+                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(delivered_tat, 'm', 1), ' ', -1) AS UNSIGNED)
+                  ELSE 0 END, 0
+                ) <= ${parseTimeStringToMinutes(String(delivered_tat))}
+              ) THEN 1 ELSE 0 END
+              
+            WHEN shipped_time IS NOT NULL AND delivered_time IS NULL THEN
+              CASE WHEN (
+                COALESCE(
+                  CASE WHEN shipped_tat REGEXP '[0-9]+d' THEN 
+                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(shipped_tat, 'd', 1), ' ', -1) AS UNSIGNED) * 1440 
+                  ELSE 0 END +
+                  CASE WHEN shipped_tat REGEXP '[0-9]+h' THEN 
+                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(shipped_tat, 'h', 1), ' ', -1) AS UNSIGNED) * 60 
+                  ELSE 0 END +
+                  CASE WHEN shipped_tat REGEXP '[0-9]+m' THEN 
+                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(shipped_tat, 'm', 1), ' ', -1) AS UNSIGNED)
+                  ELSE 0 END, 0
+                ) > ${parseTimeStringToMinutes(shippedRiskThreshold)} AND 
+                COALESCE(
+                  CASE WHEN shipped_tat REGEXP '[0-9]+d' THEN 
+                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(shipped_tat, 'd', 1), ' ', -1) AS UNSIGNED) * 1440 
+                  ELSE 0 END +
+                  CASE WHEN shipped_tat REGEXP '[0-9]+h' THEN 
+                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(shipped_tat, 'h', 1), ' ', -1) AS UNSIGNED) * 60 
+                  ELSE 0 END +
+                  CASE WHEN shipped_tat REGEXP '[0-9]+m' THEN 
+                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(shipped_tat, 'm', 1), ' ', -1) AS UNSIGNED)
+                  ELSE 0 END, 0
+                ) <= ${parseTimeStringToMinutes(String(shipped_tat))}
+              ) THEN 1 ELSE 0 END
+              
+            WHEN processing_time IS NOT NULL AND shipped_time IS NULL THEN
+              CASE WHEN (
+                COALESCE(
+                  CASE WHEN processed_tat REGEXP '[0-9]+d' THEN 
+                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(processed_tat, 'd', 1), ' ', -1) AS UNSIGNED) * 1440 
+                  ELSE 0 END +
+                  CASE WHEN processed_tat REGEXP '[0-9]+h' THEN 
+                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(processed_tat, 'h', 1), ' ', -1) AS UNSIGNED) * 60 
+                  ELSE 0 END +
+                  CASE WHEN processed_tat REGEXP '[0-9]+m' THEN 
+                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(processed_tat, 'm', 1), ' ', -1) AS UNSIGNED)
+                  ELSE 0 END, 0
+                ) > ${parseTimeStringToMinutes(processedRiskThreshold)} AND 
+                COALESCE(
+                  CASE WHEN processed_tat REGEXP '[0-9]+d' THEN 
+                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(processed_tat, 'd', 1), ' ', -1) AS UNSIGNED) * 1440 
+                  ELSE 0 END +
+                  CASE WHEN processed_tat REGEXP '[0-9]+h' THEN 
+                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(processed_tat, 'h', 1), ' ', -1) AS UNSIGNED) * 60 
+                  ELSE 0 END +
+                  CASE WHEN processed_tat REGEXP '[0-9]+m' THEN 
+                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(processed_tat, 'm', 1), ' ', -1) AS UNSIGNED)
+                  ELSE 0 END, 0
+                ) <= ${parseTimeStringToMinutes(String(processed_tat))}
+              ) THEN 1 ELSE 0 END
+              
+            ELSE 0
+          END) as orders_on_risk,
+          
+          -- Calculate breached orders (exceeded SLA threshold)
+          SUM(CASE 
+            WHEN delivered_time IS NOT NULL THEN
+              CASE WHEN (
+                COALESCE(
+                  CASE WHEN delivered_tat REGEXP '[0-9]+d' THEN 
+                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(delivered_tat, 'd', 1), ' ', -1) AS UNSIGNED) * 1440 
+                  ELSE 0 END +
+                  CASE WHEN delivered_tat REGEXP '[0-9]+h' THEN 
+                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(delivered_tat, 'h', 1), ' ', -1) AS UNSIGNED) * 60 
+                  ELSE 0 END +
+                  CASE WHEN delivered_tat REGEXP '[0-9]+m' THEN 
+                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(delivered_tat, 'm', 1), ' ', -1) AS UNSIGNED)
+                  ELSE 0 END, 0
+                ) > ${parseTimeStringToMinutes(String(delivered_tat))}
+              ) THEN 1 ELSE 0 END
+              
+            WHEN shipped_time IS NOT NULL AND delivered_time IS NULL THEN
+              CASE WHEN (
+                COALESCE(
+                  CASE WHEN shipped_tat REGEXP '[0-9]+d' THEN 
+                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(shipped_tat, 'd', 1), ' ', -1) AS UNSIGNED) * 1440 
+                  ELSE 0 END +
+                  CASE WHEN shipped_tat REGEXP '[0-9]+h' THEN 
+                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(shipped_tat, 'h', 1), ' ', -1) AS UNSIGNED) * 60 
+                  ELSE 0 END +
+                  CASE WHEN shipped_tat REGEXP '[0-9]+m' THEN 
+                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(shipped_tat, 'm', 1), ' ', -1) AS UNSIGNED)
+                  ELSE 0 END, 0
+                ) > ${parseTimeStringToMinutes(String(shipped_tat))}
+              ) THEN 1 ELSE 0 END
+              
+            WHEN processing_time IS NOT NULL AND shipped_time IS NULL THEN
+              CASE WHEN (
+                COALESCE(
+                  CASE WHEN processed_tat REGEXP '[0-9]+d' THEN 
+                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(processed_tat, 'd', 1), ' ', -1) AS UNSIGNED) * 1440 
+                  ELSE 0 END +
+                  CASE WHEN processed_tat REGEXP '[0-9]+h' THEN 
+                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(processed_tat, 'h', 1), ' ', -1) AS UNSIGNED) * 60 
+                  ELSE 0 END +
+                  CASE WHEN processed_tat REGEXP '[0-9]+m' THEN 
+                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(processed_tat, 'm', 1), ' ', -1) AS UNSIGNED)
+                  ELSE 0 END, 0
+                ) > ${parseTimeStringToMinutes(String(processed_tat))}
+              ) THEN 1 ELSE 0 END
+              
+            ELSE 0
+          END) as orders_breached,
+          
+          -- Calculate average delay for breached orders only, default to 0 if no breached orders
+          COALESCE(AVG(CASE 
+            WHEN delivered_time IS NOT NULL THEN
+              CASE WHEN (
+                COALESCE(
+                  CASE WHEN delivered_tat REGEXP '[0-9]+d' THEN 
+                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(delivered_tat, 'd', 1), ' ', -1) AS UNSIGNED) * 1440 
+                  ELSE 0 END +
+                  CASE WHEN delivered_tat REGEXP '[0-9]+h' THEN 
+                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(delivered_tat, 'h', 1), ' ', -1) AS UNSIGNED) * 60 
+                  ELSE 0 END +
+                  CASE WHEN delivered_tat REGEXP '[0-9]+m' THEN 
+                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(delivered_tat, 'm', 1), ' ', -1) AS UNSIGNED)
+                  ELSE 0 END, 0
+                ) > ${parseTimeStringToMinutes(String(delivered_tat))}
+              ) THEN (
+                COALESCE(
+                  CASE WHEN delivered_tat REGEXP '[0-9]+d' THEN 
+                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(delivered_tat, 'd', 1), ' ', -1) AS UNSIGNED) * 1440 
+                  ELSE 0 END +
+                  CASE WHEN delivered_tat REGEXP '[0-9]+h' THEN 
+                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(delivered_tat, 'h', 1), ' ', -1) AS UNSIGNED) * 60 
+                  ELSE 0 END +
+                  CASE WHEN delivered_tat REGEXP '[0-9]+m' THEN 
+                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(delivered_tat, 'm', 1), ' ', -1) AS UNSIGNED)
+                  ELSE 0 END, 0
+                ) * 60 -- Convert minutes to seconds
+              ) ELSE NULL END
+              
+            WHEN shipped_time IS NOT NULL AND delivered_time IS NULL THEN
+              CASE WHEN (
+                COALESCE(
+                  CASE WHEN shipped_tat REGEXP '[0-9]+d' THEN 
+                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(shipped_tat, 'd', 1), ' ', -1) AS UNSIGNED) * 1440 
+                  ELSE 0 END +
+                  CASE WHEN shipped_tat REGEXP '[0-9]+h' THEN 
+                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(shipped_tat, 'h', 1), ' ', -1) AS UNSIGNED) * 60 
+                  ELSE 0 END +
+                  CASE WHEN shipped_tat REGEXP '[0-9]+m' THEN 
+                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(shipped_tat, 'm', 1), ' ', -1) AS UNSIGNED)
+                  ELSE 0 END, 0
+                ) > ${parseTimeStringToMinutes(String(shipped_tat))}
+              ) THEN (
+                COALESCE(
+                  CASE WHEN shipped_tat REGEXP '[0-9]+d' THEN 
+                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(shipped_tat, 'd', 1), ' ', -1) AS UNSIGNED) * 1440 
+                  ELSE 0 END +
+                  CASE WHEN shipped_tat REGEXP '[0-9]+h' THEN 
+                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(shipped_tat, 'h', 1), ' ', -1) AS UNSIGNED) * 60 
+                  ELSE 0 END +
+                  CASE WHEN shipped_tat REGEXP '[0-9]+m' THEN 
+                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(shipped_tat, 'm', 1), ' ', -1) AS UNSIGNED)
+                  ELSE 0 END, 0
+                ) * 60 -- Convert minutes to seconds
+              ) ELSE NULL END
+              
+            WHEN processing_time IS NOT NULL AND shipped_time IS NULL THEN
+              CASE WHEN (
+                COALESCE(
+                  CASE WHEN processed_tat REGEXP '[0-9]+d' THEN 
+                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(processed_tat, 'd', 1), ' ', -1) AS UNSIGNED) * 1440 
+                  ELSE 0 END +
+                  CASE WHEN processed_tat REGEXP '[0-9]+h' THEN 
+                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(processed_tat, 'h', 1), ' ', -1) AS UNSIGNED) * 60 
+                  ELSE 0 END +
+                  CASE WHEN processed_tat REGEXP '[0-9]+m' THEN 
+                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(processed_tat, 'm', 1), ' ', -1) AS UNSIGNED)
+                  ELSE 0 END, 0
+                ) > ${parseTimeStringToMinutes(String(processed_tat))}
+              ) THEN (
+                COALESCE(
+                  CASE WHEN processed_tat REGEXP '[0-9]+d' THEN 
+                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(processed_tat, 'd', 1), ' ', -1) AS UNSIGNED) * 1440 
+                  ELSE 0 END +
+                  CASE WHEN processed_tat REGEXP '[0-9]+h' THEN 
+                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(processed_tat, 'h', 1), ' ', -1) AS UNSIGNED) * 60 
+                  ELSE 0 END +
+                  CASE WHEN processed_tat REGEXP '[0-9]+m' THEN 
+                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(processed_tat, 'm', 1), ' ', -1) AS UNSIGNED)
+                  ELSE 0 END, 0
+                ) * 60 -- Convert minutes to seconds
+              ) ELSE NULL END
+              
+            ELSE NULL
+          END), 0) as avg_delay_sec
+        FROM ${targetTable} o
+        WHERE order_date IS NOT NULL
+          AND (
+            delivered_time IS NOT NULL OR 
+            shipped_time IS NOT NULL OR 
+            processing_time IS NOT NULL
           )
-          SELECT 
-            order_date,
-            brand_name,
-            '${brand}' as brand_code,
-            country_code,
-            '${stageConfig.stage}' as stage,
-            COUNT(*) as orders_total,
-            SUM(CASE 
-              WHEN ${stageConfig.tat_field} IS NOT NULL THEN
-                CASE WHEN (
-                  -- Parse TAT string to minutes for comparison
-                  COALESCE(
-                    CASE WHEN ${stageConfig.tat_field} REGEXP '[0-9]+d' THEN 
-                      CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(${stageConfig.tat_field}, 'd', 1), ' ', -1) AS UNSIGNED) * 1440 
-                    ELSE 0 END +
-                    CASE WHEN ${stageConfig.tat_field} REGEXP '[0-9]+h' THEN 
-                      CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(${stageConfig.tat_field}, 'h', 1), ' ', -1) AS UNSIGNED) * 60 
-                    ELSE 0 END +
-                    CASE WHEN ${stageConfig.tat_field} REGEXP '[0-9]+m' THEN 
-                      CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(${stageConfig.tat_field}, 'm', 1), ' ', -1) AS UNSIGNED)
-                    ELSE 0 END, 0
-                  ) <= ${slaThresholdMinutes}
-                ) THEN 1 ELSE 0 END
-              WHEN ${stageConfig.tat_field} IS NULL THEN 1 
-              ELSE 0 
-            END) as orders_on_time,
-            SUM(CASE 
-              WHEN ${stageConfig.tat_field} IS NOT NULL THEN
-                CASE WHEN (
-                  COALESCE(
-                    CASE WHEN ${stageConfig.tat_field} REGEXP '[0-9]+d' THEN 
-                      CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(${stageConfig.tat_field}, 'd', 1), ' ', -1) AS UNSIGNED) * 1440 
-                    ELSE 0 END +
-                    CASE WHEN ${stageConfig.tat_field} REGEXP '[0-9]+h' THEN 
-                      CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(${stageConfig.tat_field}, 'h', 1), ' ', -1) AS UNSIGNED) * 60 
-                    ELSE 0 END +
-                    CASE WHEN ${stageConfig.tat_field} REGEXP '[0-9]+m' THEN 
-                      CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(${stageConfig.tat_field}, 'm', 1), ' ', -1) AS UNSIGNED)
-                    ELSE 0 END, 0
-                  ) > ${riskThresholdMinutes} AND 
-                  COALESCE(
-                    CASE WHEN ${stageConfig.tat_field} REGEXP '[0-9]+d' THEN 
-                      CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(${stageConfig.tat_field}, 'd', 1), ' ', -1) AS UNSIGNED) * 1440 
-                    ELSE 0 END +
-                    CASE WHEN ${stageConfig.tat_field} REGEXP '[0-9]+h' THEN 
-                      CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(${stageConfig.tat_field}, 'h', 1), ' ', -1) AS UNSIGNED) * 60 
-                    ELSE 0 END +
-                    CASE WHEN ${stageConfig.tat_field} REGEXP '[0-9]+m' THEN 
-                      CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(${stageConfig.tat_field}, 'm', 1), ' ', -1) AS UNSIGNED)
-                    ELSE 0 END, 0
-                  ) <= ${slaThresholdMinutes}
-                ) THEN 1 ELSE 0 END
-              ELSE 0 
-            END) as orders_on_risk,
-            SUM(CASE 
-              WHEN ${stageConfig.tat_field} IS NOT NULL THEN
-                CASE WHEN (
-                  COALESCE(
-                    CASE WHEN ${stageConfig.tat_field} REGEXP '[0-9]+d' THEN 
-                      CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(${stageConfig.tat_field}, 'd', 1), ' ', -1) AS UNSIGNED) * 1440 
-                    ELSE 0 END +
-                    CASE WHEN ${stageConfig.tat_field} REGEXP '[0-9]+h' THEN 
-                      CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(${stageConfig.tat_field}, 'h', 1), ' ', -1) AS UNSIGNED) * 60 
-                    ELSE 0 END +
-                    CASE WHEN ${stageConfig.tat_field} REGEXP '[0-9]+m' THEN 
-                      CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(${stageConfig.tat_field}, 'm', 1), ' ', -1) AS UNSIGNED)
-                    ELSE 0 END, 0
-                  ) > ${slaThresholdMinutes}
-                ) THEN 1 ELSE 0 END
-              ELSE 0 
-            END) as orders_breached,
-            AVG(CASE 
-              WHEN ${stageConfig.tat_field} IS NOT NULL THEN
-                CASE WHEN (
-                  COALESCE(
-                    CASE WHEN ${stageConfig.tat_field} REGEXP '[0-9]+d' THEN 
-                      CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(${stageConfig.tat_field}, 'd', 1), ' ', -1) AS UNSIGNED) * 1440 
-                    ELSE 0 END +
-                    CASE WHEN ${stageConfig.tat_field} REGEXP '[0-9]+h' THEN 
-                      CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(${stageConfig.tat_field}, 'h', 1), ' ', -1) AS UNSIGNED) * 60 
-                    ELSE 0 END +
-                    CASE WHEN ${stageConfig.tat_field} REGEXP '[0-9]+m' THEN 
-                      CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(${stageConfig.tat_field}, 'm', 1), ' ', -1) AS UNSIGNED)
-                    ELSE 0 END, 0
-                  ) > ${slaThresholdMinutes}
-                ) THEN (
-                  COALESCE(
-                    CASE WHEN ${stageConfig.tat_field} REGEXP '[0-9]+d' THEN 
-                      CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(${stageConfig.tat_field}, 'd', 1), ' ', -1) AS UNSIGNED) * 1440 
-                    ELSE 0 END +
-                    CASE WHEN ${stageConfig.tat_field} REGEXP '[0-9]+h' THEN 
-                      CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(${stageConfig.tat_field}, 'h', 1), ' ', -1) AS UNSIGNED) * 60 
-                    ELSE 0 END +
-                    CASE WHEN ${stageConfig.tat_field} REGEXP '[0-9]+m' THEN 
-                      CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(${stageConfig.tat_field}, 'm', 1), ' ', -1) AS UNSIGNED)
-                    ELSE 0 END, 0
-                  ) * 60 -- Convert minutes to seconds
-                ) ELSE 0 END
-              ELSE 0 
-            END) as avg_delay_sec
-          FROM ${targetTable} o
-          WHERE order_date IS NOT NULL
-          GROUP BY order_date, brand_name, country_code
-          ON DUPLICATE KEY UPDATE
-            orders_total = VALUES(orders_total),
-            orders_on_time = VALUES(orders_on_time),
-            orders_on_risk = VALUES(orders_on_risk),
-            orders_breached = VALUES(orders_breached),
-            avg_delay_sec = VALUES(avg_delay_sec),
-            refreshed_at = CURRENT_TIMESTAMP
-        `;
+        GROUP BY order_date, brand_name, country_code, current_stage
+        HAVING current_stage IS NOT NULL
+        ORDER BY order_date, current_stage
+      `;
 
-        await analyticsDb.execute(summaryQuery);
-      }
+      await analyticsDb.execute(summaryQuery);
       
-      console.log(`Generated daily summary for all stages: ${brand}_${country}`);
+      console.log(`Generated daily summary with proper stage assignment: ${brand}_${country}`);
     } catch (error) {
       console.warn(`Failed to generate daily summary for ${brand}_${country}:`, error);
     }

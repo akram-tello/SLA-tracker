@@ -22,7 +22,7 @@ export function SLAChart() {
     setMounted(true)
   }, [])
 
-  const chartData = dashboardData?.chart_data || []
+  const chartData = dashboardData?.stage_breakdown || []
 
   const series = [
     {

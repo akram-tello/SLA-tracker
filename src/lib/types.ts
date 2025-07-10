@@ -39,38 +39,52 @@ export interface SLADailySummary {
   refreshed_at: Date;
 }
 
+// ========== UPDATED: New API Structure Types ==========
+
+export interface KPISummary {
+  total_orders: number;
+  on_time_orders: number;
+  on_risk_orders: number;
+  breached_orders: number;
+  completion_rate: number;
+  avg_delay_seconds: number;
+}
+
 export interface StageKPI {
   stage: string;
   total_orders: number;
-  sla_breached: number;
-  on_risk: number;
-  completed: number;
-}
-
-export interface DashboardSummary {
-  total_orders: number;
-  sla_breached: number;
-  on_risk: number;
-  completed: number;
-  stage_kpis: StageKPI[];
-  chart_data: ChartData[];
-  stage_breakdown: StageBreakdown[];
+  on_time_orders: number;
+  on_risk_orders: number;
+  breached_orders: number;
+  completion_rate: number;
+  avg_delay_seconds: number;
 }
 
 export interface ChartData {
-  stage: string;
-  on_time: number;
-  on_risk: number;
-  breached: number;
+  date: string;
+  total_orders: number;
+  on_time_orders: number;
+  breached_orders: number;
+  completion_rate: number;
 }
 
 export interface StageBreakdown {
   stage: string;
+  total: number;
   on_time: number;
-  breached: number;
   on_risk: number;
-  avg_delay: string;
+  breached: number;
+  completion_rate: number;
 }
+
+export interface DashboardSummary {
+  kpis: KPISummary;
+  stage_breakdown: StageBreakdown[];
+  chart_data: ChartData[];
+  stage_kpis: StageKPI[];
+}
+
+// ========== LEGACY: Keep these for backward compatibility ==========
 
 export interface DashboardFilters {
   from_date: string;
