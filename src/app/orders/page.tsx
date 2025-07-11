@@ -160,17 +160,17 @@ interface Order {
   order_no: string
   order_status: string
   shipping_status: string
-  order_date: Date
-  processing_time?: Date
-  shipped_time?: Date
-  delivered_time?: Date
-  processed_tat?: number
-  shipped_tat?: number
-  delivered_tat?: number
+  order_date: Date | string
+  processing_time?: Date | string | null
+  shipped_time?: Date | string | null
+  delivered_time?: Date | string | null
+  processed_tat?: string | null
+  shipped_tat?: string | null
+  delivered_tat?: string | null
   brand_name: string
   country_code: string
+  current_stage: string
   sla_status: string
-  filtered_stage?: string
 }
 
 interface OrdersResponse {
@@ -354,17 +354,7 @@ function OrdersContent() {
                 />
               </div>
               
-              <Select
-                value={filters.order_status || ''}
-                onChange={(e) => handleFilterChange('order_status', e.target.value || undefined)}
-              >
-                <option value="">All Order Status</option>
-                <option value="pending">Pending</option>
-                <option value="processing">Processing</option>
-                <option value="shipped">Shipped</option>
-                <option value="delivered">Delivered</option>
-                <option value="cancelled">Cancelled</option>
-              </Select>
+
 
               <Select
                 value={filters.sla_status || ''}
@@ -374,6 +364,16 @@ function OrdersContent() {
                 <option value="On Time">On Time</option>
                 <option value="At Risk">At Risk</option>
                 <option value="Breached">Breached</option>
+              </Select>
+
+              <Select
+                value={filters.stage || ''}
+                onChange={(e) => handleFilterChange('stage', e.target.value || undefined)}
+              >
+                <option value="">All Stages</option>
+                <option value="Processed">Processed</option>
+                <option value="Shipped">Shipped</option>
+                <option value="Delivered">Delivered</option>
               </Select>
 
               <Select
@@ -420,7 +420,7 @@ function OrdersContent() {
               <TableHead>
                 <TableRow>
                   <TableHeadCell>Order No</TableHeadCell>
-                  <TableHeadCell>Order Status</TableHeadCell>
+                  <TableHeadCell>Current Stage</TableHeadCell>
                   <TableHeadCell>Brand</TableHeadCell>
                   <TableHeadCell>Country</TableHeadCell>
                   <TableHeadCell>Order Date</TableHeadCell>
@@ -458,8 +458,14 @@ function OrdersContent() {
                       <TableCell className="font-medium text-gray-900 dark:text-white">
                         {order.order_no}
                       </TableCell>
-                      <TableCell className="capitalize">
-                        {order.order_status}
+                      <TableCell>
+                        <Badge color={
+                          order.current_stage === 'Delivered' ? 'success' :
+                          order.current_stage === 'Shipped' ? 'warning' :
+                          order.current_stage === 'Processed' ? 'gray' : 'gray'
+                        }>
+                          {order.current_stage}
+                        </Badge>
                       </TableCell>
                       <TableCell>{order.brand_name}</TableCell>
                       <TableCell>{order.country_code}</TableCell>

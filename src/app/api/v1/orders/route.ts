@@ -96,6 +96,17 @@ export async function GET(request: NextRequest) {
       params.push(filters.from_date, filters.to_date);
     }
 
+    // Add stage filtering based on current stage of orders
+    if (filters.stage) {
+      if (filters.stage === 'Delivered') {
+        whereConditions.push('delivered_time IS NOT NULL');
+      } else if (filters.stage === 'Shipped') {
+        whereConditions.push('shipped_time IS NOT NULL AND delivered_time IS NULL');
+      } else if (filters.stage === 'Processed') {
+        whereConditions.push('processing_time IS NOT NULL AND shipped_time IS NULL');
+      }
+    }
+
     const whereClause = whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : '';
 
     // Build stage-specific SLA status calculation for formatted TAT strings
@@ -172,7 +183,8 @@ export async function GET(request: NextRequest) {
     const countQuery = `
       SELECT COUNT(*) as total 
       FROM ${mainTable} o
-      LEFT JOIN tat_config tc ON o.brand_name = tc.brand_name AND o.country_code = tc.country_code
+      LEFT JOIN tat_config tc ON o.brand_name COLLATE utf8mb4_unicode_ci = tc.brand_name COLLATE utf8mb4_unicode_ci 
+                               AND o.country_code COLLATE utf8mb4_unicode_ci = tc.country_code COLLATE utf8mb4_unicode_ci
       ${whereClause}
       ${filters.sla_status ? `${whereClause ? 'AND' : 'WHERE'} (${slaStatusCase}) = ?` : ''}
     `;
@@ -192,9 +204,15 @@ export async function GET(request: NextRequest) {
         o.processed_tat, o.shipped_tat, o.delivered_tat,
         o.brand_name, o.country_code,
         ${slaStatusCase} as sla_status,
-        '${filters.stage || 'Processed'}' as filtered_stage
+        CASE 
+          WHEN o.delivered_time IS NOT NULL THEN 'Delivered'
+          WHEN o.shipped_time IS NOT NULL AND o.delivered_time IS NULL THEN 'Shipped'
+          WHEN o.processing_time IS NOT NULL AND o.shipped_time IS NULL THEN 'Processed'
+          ELSE 'Processing'
+        END as current_stage
       FROM ${mainTable} o
-      LEFT JOIN tat_config tc ON o.brand_name = tc.brand_name AND o.country_code = tc.country_code
+      LEFT JOIN tat_config tc ON o.brand_name COLLATE utf8mb4_unicode_ci = tc.brand_name COLLATE utf8mb4_unicode_ci 
+                               AND o.country_code COLLATE utf8mb4_unicode_ci = tc.country_code COLLATE utf8mb4_unicode_ci
       ${whereClause}
       ${filters.sla_status ? `${whereClause ? 'AND' : 'WHERE'} (${slaStatusCase}) = ?` : ''}
       ORDER BY o.order_date DESC 
@@ -220,6 +238,7 @@ export async function GET(request: NextRequest) {
       delivered_tat: row.delivered_tat ? String(row.delivered_tat) : null,
       brand_name: String(row.brand_name || ''),
       country_code: String(row.country_code || ''),
+      current_stage: String(row.current_stage || 'Processing'),
       sla_status: String(row.sla_status || 'Unknown'),
     }));
 
