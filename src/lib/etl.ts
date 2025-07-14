@@ -534,10 +534,14 @@ export class ETLService {
       const tatConfig = tatConfigArray[0];
       const { processed_tat, shipped_tat, delivered_tat, risk_pct } = tatConfig;
       
-      // Calculate risk thresholds using formatted time strings
-      const processedRiskThreshold = calculateRiskThreshold(String(processed_tat), Number(risk_pct));
-      const shippedRiskThreshold = calculateRiskThreshold(String(shipped_tat), Number(risk_pct));
-      const deliveredRiskThreshold = calculateRiskThreshold(String(delivered_tat), Number(risk_pct));
+              // Convert TAT values to minutes and calculate risk thresholds
+        const processedTATMinutes = parseTimeStringToMinutes(String(processed_tat));
+        const shippedTATMinutes = parseTimeStringToMinutes(String(shipped_tat));
+        const deliveredTATMinutes = parseTimeStringToMinutes(String(delivered_tat));
+        
+        const processedRiskThreshold = parseTimeStringToMinutes(calculateRiskThreshold(String(processed_tat), Number(risk_pct)));
+        const shippedRiskThreshold = parseTimeStringToMinutes(calculateRiskThreshold(String(shipped_tat), Number(risk_pct)));
+        const deliveredRiskThreshold = parseTimeStringToMinutes(calculateRiskThreshold(String(delivered_tat), Number(risk_pct)));
 
       // First, clear existing summaries for this brand/country to avoid duplicates
       await analyticsDb.execute(`
@@ -583,7 +587,7 @@ export class ETLService {
                   CASE WHEN delivered_tat REGEXP '[0-9]+m' THEN 
                     CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(delivered_tat, 'm', 1), ' ', -1) AS UNSIGNED)
                   ELSE 0 END, 0
-                ) <= ${parseTimeStringToMinutes(String(delivered_tat))}
+                ) <= ${deliveredTATMinutes}
               ) THEN 1 ELSE 0 END
             
             WHEN shipped_time IS NOT NULL AND delivered_time IS NULL THEN
@@ -599,7 +603,7 @@ export class ETLService {
                   CASE WHEN shipped_tat REGEXP '[0-9]+m' THEN 
                     CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(shipped_tat, 'm', 1), ' ', -1) AS UNSIGNED)
                   ELSE 0 END, 0
-                ) <= ${parseTimeStringToMinutes(String(shipped_tat))}
+                ) <= ${shippedTATMinutes}
               ) THEN 1 ELSE 0 END
               
             WHEN processed_time IS NOT NULL AND shipped_time IS NULL THEN
@@ -615,7 +619,7 @@ export class ETLService {
                   CASE WHEN processed_tat REGEXP '[0-9]+m' THEN 
                     CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(processed_tat, 'm', 1), ' ', -1) AS UNSIGNED)
                   ELSE 0 END, 0
-                ) <= ${parseTimeStringToMinutes(String(processed_tat))}
+                ) <= ${processedTATMinutes}
               ) THEN 1 ELSE 0 END
               
             ELSE 1 -- Orders still processing are considered on-time for now
@@ -635,7 +639,7 @@ export class ETLService {
                   CASE WHEN delivered_tat REGEXP '[0-9]+m' THEN 
                     CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(delivered_tat, 'm', 1), ' ', -1) AS UNSIGNED)
                   ELSE 0 END, 0
-                ) > ${parseTimeStringToMinutes(deliveredRiskThreshold)} AND 
+                ) > ${deliveredRiskThreshold} AND 
                 COALESCE(
                   CASE WHEN delivered_tat REGEXP '[0-9]+d' THEN 
                     CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(delivered_tat, 'd', 1), ' ', -1) AS UNSIGNED) * 1440 
@@ -646,7 +650,7 @@ export class ETLService {
                   CASE WHEN delivered_tat REGEXP '[0-9]+m' THEN 
                     CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(delivered_tat, 'm', 1), ' ', -1) AS UNSIGNED)
                   ELSE 0 END, 0
-                ) <= ${parseTimeStringToMinutes(String(delivered_tat))}
+                ) <= ${deliveredTATMinutes}
               ) THEN 1 ELSE 0 END
               
             WHEN shipped_time IS NOT NULL AND delivered_time IS NULL THEN
@@ -661,7 +665,7 @@ export class ETLService {
                   CASE WHEN shipped_tat REGEXP '[0-9]+m' THEN 
                     CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(shipped_tat, 'm', 1), ' ', -1) AS UNSIGNED)
                   ELSE 0 END, 0
-                ) > ${parseTimeStringToMinutes(shippedRiskThreshold)} AND 
+                ) > ${shippedRiskThreshold} AND 
                 COALESCE(
                   CASE WHEN shipped_tat REGEXP '[0-9]+d' THEN 
                     CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(shipped_tat, 'd', 1), ' ', -1) AS UNSIGNED) * 1440 
@@ -672,7 +676,7 @@ export class ETLService {
                   CASE WHEN shipped_tat REGEXP '[0-9]+m' THEN 
                     CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(shipped_tat, 'm', 1), ' ', -1) AS UNSIGNED)
                   ELSE 0 END, 0
-                ) <= ${parseTimeStringToMinutes(String(shipped_tat))}
+                ) <= ${shippedTATMinutes}
               ) THEN 1 ELSE 0 END
               
             WHEN processed_time IS NOT NULL AND shipped_time IS NULL THEN
@@ -687,7 +691,7 @@ export class ETLService {
                   CASE WHEN processed_tat REGEXP '[0-9]+m' THEN 
                     CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(processed_tat, 'm', 1), ' ', -1) AS UNSIGNED)
                   ELSE 0 END, 0
-                ) > ${parseTimeStringToMinutes(processedRiskThreshold)} AND 
+                ) > ${processedRiskThreshold} AND 
                 COALESCE(
                   CASE WHEN processed_tat REGEXP '[0-9]+d' THEN 
                     CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(processed_tat, 'd', 1), ' ', -1) AS UNSIGNED) * 1440 
@@ -698,7 +702,7 @@ export class ETLService {
                   CASE WHEN processed_tat REGEXP '[0-9]+m' THEN 
                     CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(processed_tat, 'm', 1), ' ', -1) AS UNSIGNED)
                   ELSE 0 END, 0
-                ) <= ${parseTimeStringToMinutes(String(processed_tat))}
+                ) <= ${processedTATMinutes}
               ) THEN 1 ELSE 0 END
               
             ELSE 0
@@ -718,7 +722,7 @@ export class ETLService {
                   CASE WHEN delivered_tat REGEXP '[0-9]+m' THEN 
                     CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(delivered_tat, 'm', 1), ' ', -1) AS UNSIGNED)
                   ELSE 0 END, 0
-                ) > ${parseTimeStringToMinutes(String(delivered_tat))}
+                ) > ${deliveredTATMinutes}
               ) THEN 1 ELSE 0 END
               
             WHEN shipped_time IS NOT NULL AND delivered_time IS NULL THEN
@@ -733,7 +737,7 @@ export class ETLService {
                   CASE WHEN shipped_tat REGEXP '[0-9]+m' THEN 
                     CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(shipped_tat, 'm', 1), ' ', -1) AS UNSIGNED)
                   ELSE 0 END, 0
-                ) > ${parseTimeStringToMinutes(String(shipped_tat))}
+                ) > ${shippedTATMinutes}
               ) THEN 1 ELSE 0 END
               
             WHEN processed_time IS NOT NULL AND shipped_time IS NULL THEN
@@ -748,7 +752,7 @@ export class ETLService {
                   CASE WHEN processed_tat REGEXP '[0-9]+m' THEN 
                     CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(processed_tat, 'm', 1), ' ', -1) AS UNSIGNED)
                   ELSE 0 END, 0
-                ) > ${parseTimeStringToMinutes(String(processed_tat))}
+                ) > ${processedTATMinutes}
               ) THEN 1 ELSE 0 END
               
             ELSE 0
@@ -768,7 +772,7 @@ export class ETLService {
                   CASE WHEN delivered_tat REGEXP '[0-9]+m' THEN 
                     CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(delivered_tat, 'm', 1), ' ', -1) AS UNSIGNED)
                   ELSE 0 END, 0
-                ) > ${parseTimeStringToMinutes(String(delivered_tat))}
+                ) > ${deliveredTATMinutes}
               ) THEN (
                 COALESCE(
                   CASE WHEN delivered_tat REGEXP '[0-9]+d' THEN 
@@ -795,7 +799,7 @@ export class ETLService {
                   CASE WHEN shipped_tat REGEXP '[0-9]+m' THEN 
                     CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(shipped_tat, 'm', 1), ' ', -1) AS UNSIGNED)
                   ELSE 0 END, 0
-                ) > ${parseTimeStringToMinutes(String(shipped_tat))}
+                ) > ${shippedTATMinutes}
               ) THEN (
                 COALESCE(
                   CASE WHEN shipped_tat REGEXP '[0-9]+d' THEN 
@@ -822,7 +826,7 @@ export class ETLService {
                   CASE WHEN processed_tat REGEXP '[0-9]+m' THEN 
                     CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(processed_tat, 'm', 1), ' ', -1) AS UNSIGNED)
                   ELSE 0 END, 0
-                ) > ${parseTimeStringToMinutes(String(processed_tat))}
+                ) > ${processedTATMinutes}
               ) THEN (
                 COALESCE(
                   CASE WHEN processed_tat REGEXP '[0-9]+d' THEN 
