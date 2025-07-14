@@ -577,52 +577,19 @@ export class ETLService {
           -- Calculate SLA performance based on the CURRENT stage
           SUM(CASE 
             WHEN delivered_time IS NOT NULL THEN
-              -- For delivered orders, check delivered_tat against delivered SLA
-              CASE WHEN (
-                COALESCE(
-                  CASE WHEN delivered_tat REGEXP '[0-9]+d' THEN 
-                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(delivered_tat, 'd', 1), ' ', -1) AS UNSIGNED) * 1440 
-                  ELSE 0 END +
-                  CASE WHEN delivered_tat REGEXP '[0-9]+h' THEN 
-                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(delivered_tat, 'h', 1), ' ', -1) AS UNSIGNED) * 60 
-                  ELSE 0 END +
-                  CASE WHEN delivered_tat REGEXP '[0-9]+m' THEN 
-                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(delivered_tat, 'm', 1), ' ', -1) AS UNSIGNED)
-                  ELSE 0 END, 0
-                ) <= ${deliveredTATMinutes}
-              ) THEN 1 ELSE 0 END
+              -- For delivered orders, calculate actual time from placed to delivered and compare with SLA
+              CASE WHEN TIMESTAMPDIFF(MINUTE, placed_time, delivered_time) <= ${deliveredTATMinutes} 
+                   THEN 1 ELSE 0 END
             
             WHEN shipped_time IS NOT NULL AND delivered_time IS NULL THEN
-              -- For shipped (not delivered) orders, check shipped_tat against shipped SLA
-              CASE WHEN (
-                COALESCE(
-                  CASE WHEN shipped_tat REGEXP '[0-9]+d' THEN 
-                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(shipped_tat, 'd', 1), ' ', -1) AS UNSIGNED) * 1440 
-                  ELSE 0 END +
-                  CASE WHEN shipped_tat REGEXP '[0-9]+h' THEN 
-                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(shipped_tat, 'h', 1), ' ', -1) AS UNSIGNED) * 60 
-                  ELSE 0 END +
-                  CASE WHEN shipped_tat REGEXP '[0-9]+m' THEN 
-                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(shipped_tat, 'm', 1), ' ', -1) AS UNSIGNED)
-                  ELSE 0 END, 0
-                ) <= ${shippedTATMinutes}
-              ) THEN 1 ELSE 0 END
+              -- For shipped (not delivered) orders, calculate actual time from placed to shipped and compare with SLA
+              CASE WHEN TIMESTAMPDIFF(MINUTE, placed_time, shipped_time) <= ${shippedTATMinutes} 
+                   THEN 1 ELSE 0 END
               
             WHEN processed_time IS NOT NULL AND shipped_time IS NULL THEN
-              -- For processed (not shipped) orders, check processed_tat against processed SLA
-              CASE WHEN (
-                COALESCE(
-                  CASE WHEN processed_tat REGEXP '[0-9]+d' THEN 
-                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(processed_tat, 'd', 1), ' ', -1) AS UNSIGNED) * 1440 
-                  ELSE 0 END +
-                  CASE WHEN processed_tat REGEXP '[0-9]+h' THEN 
-                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(processed_tat, 'h', 1), ' ', -1) AS UNSIGNED) * 60 
-                  ELSE 0 END +
-                  CASE WHEN processed_tat REGEXP '[0-9]+m' THEN 
-                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(processed_tat, 'm', 1), ' ', -1) AS UNSIGNED)
-                  ELSE 0 END, 0
-                ) <= ${processedTATMinutes}
-              ) THEN 1 ELSE 0 END
+              -- For processed (not shipped) orders, calculate actual time from placed to processed and compare with SLA
+              CASE WHEN TIMESTAMPDIFF(MINUTE, placed_time, processed_time) <= ${processedTATMinutes} 
+                   THEN 1 ELSE 0 END
               
             WHEN confirmation_status = 'NOTCONFIRMED' THEN
               -- For not processed orders, they are not yet in SLA workflow, so not counted as on-time
@@ -634,82 +601,22 @@ export class ETLService {
           -- Calculate on-risk orders (between risk threshold and SLA threshold)
           SUM(CASE 
             WHEN delivered_time IS NOT NULL THEN
-              CASE WHEN (
-                COALESCE(
-                  CASE WHEN delivered_tat REGEXP '[0-9]+d' THEN 
-                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(delivered_tat, 'd', 1), ' ', -1) AS UNSIGNED) * 1440 
-                  ELSE 0 END +
-                  CASE WHEN delivered_tat REGEXP '[0-9]+h' THEN 
-                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(delivered_tat, 'h', 1), ' ', -1) AS UNSIGNED) * 60 
-                  ELSE 0 END +
-                  CASE WHEN delivered_tat REGEXP '[0-9]+m' THEN 
-                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(delivered_tat, 'm', 1), ' ', -1) AS UNSIGNED)
-                  ELSE 0 END, 0
-                ) > ${deliveredRiskThreshold} AND 
-                COALESCE(
-                  CASE WHEN delivered_tat REGEXP '[0-9]+d' THEN 
-                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(delivered_tat, 'd', 1), ' ', -1) AS UNSIGNED) * 1440 
-                  ELSE 0 END +
-                  CASE WHEN delivered_tat REGEXP '[0-9]+h' THEN 
-                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(delivered_tat, 'h', 1), ' ', -1) AS UNSIGNED) * 60 
-                  ELSE 0 END +
-                  CASE WHEN delivered_tat REGEXP '[0-9]+m' THEN 
-                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(delivered_tat, 'm', 1), ' ', -1) AS UNSIGNED)
-                  ELSE 0 END, 0
-                ) <= ${deliveredTATMinutes}
-              ) THEN 1 ELSE 0 END
+              -- For delivered orders, check if actual time is between risk threshold and SLA threshold
+              CASE WHEN TIMESTAMPDIFF(MINUTE, placed_time, delivered_time) > ${deliveredRiskThreshold} 
+                        AND TIMESTAMPDIFF(MINUTE, placed_time, delivered_time) <= ${deliveredTATMinutes}
+                   THEN 1 ELSE 0 END
               
             WHEN shipped_time IS NOT NULL AND delivered_time IS NULL THEN
-              CASE WHEN (
-                COALESCE(
-                  CASE WHEN shipped_tat REGEXP '[0-9]+d' THEN 
-                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(shipped_tat, 'd', 1), ' ', -1) AS UNSIGNED) * 1440 
-                  ELSE 0 END +
-                  CASE WHEN shipped_tat REGEXP '[0-9]+h' THEN 
-                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(shipped_tat, 'h', 1), ' ', -1) AS UNSIGNED) * 60 
-                  ELSE 0 END +
-                  CASE WHEN shipped_tat REGEXP '[0-9]+m' THEN 
-                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(shipped_tat, 'm', 1), ' ', -1) AS UNSIGNED)
-                  ELSE 0 END, 0
-                ) > ${shippedRiskThreshold} AND 
-                COALESCE(
-                  CASE WHEN shipped_tat REGEXP '[0-9]+d' THEN 
-                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(shipped_tat, 'd', 1), ' ', -1) AS UNSIGNED) * 1440 
-                  ELSE 0 END +
-                  CASE WHEN shipped_tat REGEXP '[0-9]+h' THEN 
-                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(shipped_tat, 'h', 1), ' ', -1) AS UNSIGNED) * 60 
-                  ELSE 0 END +
-                  CASE WHEN shipped_tat REGEXP '[0-9]+m' THEN 
-                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(shipped_tat, 'm', 1), ' ', -1) AS UNSIGNED)
-                  ELSE 0 END, 0
-                ) <= ${shippedTATMinutes}
-              ) THEN 1 ELSE 0 END
+              -- For shipped orders, check if actual time is between risk threshold and SLA threshold  
+              CASE WHEN TIMESTAMPDIFF(MINUTE, placed_time, shipped_time) > ${shippedRiskThreshold} 
+                        AND TIMESTAMPDIFF(MINUTE, placed_time, shipped_time) <= ${shippedTATMinutes}
+                   THEN 1 ELSE 0 END
               
             WHEN processed_time IS NOT NULL AND shipped_time IS NULL THEN
-              CASE WHEN (
-                COALESCE(
-                  CASE WHEN processed_tat REGEXP '[0-9]+d' THEN 
-                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(processed_tat, 'd', 1), ' ', -1) AS UNSIGNED) * 1440 
-                  ELSE 0 END +
-                  CASE WHEN processed_tat REGEXP '[0-9]+h' THEN 
-                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(processed_tat, 'h', 1), ' ', -1) AS UNSIGNED) * 60 
-                  ELSE 0 END +
-                  CASE WHEN processed_tat REGEXP '[0-9]+m' THEN 
-                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(processed_tat, 'm', 1), ' ', -1) AS UNSIGNED)
-                  ELSE 0 END, 0
-                ) > ${processedRiskThreshold} AND 
-                COALESCE(
-                  CASE WHEN processed_tat REGEXP '[0-9]+d' THEN 
-                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(processed_tat, 'd', 1), ' ', -1) AS UNSIGNED) * 1440 
-                  ELSE 0 END +
-                  CASE WHEN processed_tat REGEXP '[0-9]+h' THEN 
-                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(processed_tat, 'h', 1), ' ', -1) AS UNSIGNED) * 60 
-                  ELSE 0 END +
-                  CASE WHEN processed_tat REGEXP '[0-9]+m' THEN 
-                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(processed_tat, 'm', 1), ' ', -1) AS UNSIGNED)
-                  ELSE 0 END, 0
-                ) <= ${processedTATMinutes}
-              ) THEN 1 ELSE 0 END
+              -- For processed orders, check if actual time is between risk threshold and SLA threshold
+              CASE WHEN TIMESTAMPDIFF(MINUTE, placed_time, processed_time) > ${processedRiskThreshold} 
+                        AND TIMESTAMPDIFF(MINUTE, placed_time, processed_time) <= ${processedTATMinutes}
+                   THEN 1 ELSE 0 END
               
             WHEN confirmation_status = 'NOTCONFIRMED' THEN
               -- For not processed orders, they are not yet in SLA workflow, so not counted as on-risk
@@ -721,49 +628,19 @@ export class ETLService {
           -- Calculate breached orders (exceeded SLA threshold)
           SUM(CASE 
             WHEN delivered_time IS NOT NULL THEN
-              CASE WHEN (
-                COALESCE(
-                  CASE WHEN delivered_tat REGEXP '[0-9]+d' THEN 
-                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(delivered_tat, 'd', 1), ' ', -1) AS UNSIGNED) * 1440 
-                  ELSE 0 END +
-                  CASE WHEN delivered_tat REGEXP '[0-9]+h' THEN 
-                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(delivered_tat, 'h', 1), ' ', -1) AS UNSIGNED) * 60 
-                  ELSE 0 END +
-                  CASE WHEN delivered_tat REGEXP '[0-9]+m' THEN 
-                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(delivered_tat, 'm', 1), ' ', -1) AS UNSIGNED)
-                  ELSE 0 END, 0
-                ) > ${deliveredTATMinutes}
-              ) THEN 1 ELSE 0 END
+              -- For delivered orders, check if actual time exceeds SLA threshold
+              CASE WHEN TIMESTAMPDIFF(MINUTE, placed_time, delivered_time) > ${deliveredTATMinutes} 
+                   THEN 1 ELSE 0 END
               
             WHEN shipped_time IS NOT NULL AND delivered_time IS NULL THEN
-              CASE WHEN (
-                COALESCE(
-                  CASE WHEN shipped_tat REGEXP '[0-9]+d' THEN 
-                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(shipped_tat, 'd', 1), ' ', -1) AS UNSIGNED) * 1440 
-                  ELSE 0 END +
-                  CASE WHEN shipped_tat REGEXP '[0-9]+h' THEN 
-                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(shipped_tat, 'h', 1), ' ', -1) AS UNSIGNED) * 60 
-                  ELSE 0 END +
-                  CASE WHEN shipped_tat REGEXP '[0-9]+m' THEN 
-                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(shipped_tat, 'm', 1), ' ', -1) AS UNSIGNED)
-                  ELSE 0 END, 0
-                ) > ${shippedTATMinutes}
-              ) THEN 1 ELSE 0 END
+              -- For shipped orders, check if actual time exceeds SLA threshold
+              CASE WHEN TIMESTAMPDIFF(MINUTE, placed_time, shipped_time) > ${shippedTATMinutes} 
+                   THEN 1 ELSE 0 END
               
             WHEN processed_time IS NOT NULL AND shipped_time IS NULL THEN
-              CASE WHEN (
-                COALESCE(
-                  CASE WHEN processed_tat REGEXP '[0-9]+d' THEN 
-                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(processed_tat, 'd', 1), ' ', -1) AS UNSIGNED) * 1440 
-                  ELSE 0 END +
-                  CASE WHEN processed_tat REGEXP '[0-9]+h' THEN 
-                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(processed_tat, 'h', 1), ' ', -1) AS UNSIGNED) * 60 
-                  ELSE 0 END +
-                  CASE WHEN processed_tat REGEXP '[0-9]+m' THEN 
-                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(processed_tat, 'm', 1), ' ', -1) AS UNSIGNED)
-                  ELSE 0 END, 0
-                ) > ${processedTATMinutes}
-              ) THEN 1 ELSE 0 END
+              -- For processed orders, check if actual time exceeds SLA threshold
+              CASE WHEN TIMESTAMPDIFF(MINUTE, placed_time, processed_time) > ${processedTATMinutes} 
+                   THEN 1 ELSE 0 END
               
             WHEN confirmation_status = 'NOTCONFIRMED' THEN
               -- For not processed orders, they are not yet in SLA workflow, so not counted as breached
@@ -772,88 +649,26 @@ export class ETLService {
             ELSE 0
           END) as orders_breached,
           
-          -- Calculate average delay for breached orders only, default to 0 if no breached orders
+          -- Calculate average delay for breached orders only (in seconds)
           COALESCE(AVG(CASE 
             WHEN delivered_time IS NOT NULL THEN
-              CASE WHEN (
-                COALESCE(
-                  CASE WHEN delivered_tat REGEXP '[0-9]+d' THEN 
-                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(delivered_tat, 'd', 1), ' ', -1) AS UNSIGNED) * 1440 
-                  ELSE 0 END +
-                  CASE WHEN delivered_tat REGEXP '[0-9]+h' THEN 
-                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(delivered_tat, 'h', 1), ' ', -1) AS UNSIGNED) * 60 
-                  ELSE 0 END +
-                  CASE WHEN delivered_tat REGEXP '[0-9]+m' THEN 
-                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(delivered_tat, 'm', 1), ' ', -1) AS UNSIGNED)
-                  ELSE 0 END, 0
-                ) > ${deliveredTATMinutes}
-              ) THEN (
-                COALESCE(
-                  CASE WHEN delivered_tat REGEXP '[0-9]+d' THEN 
-                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(delivered_tat, 'd', 1), ' ', -1) AS UNSIGNED) * 1440 
-                  ELSE 0 END +
-                  CASE WHEN delivered_tat REGEXP '[0-9]+h' THEN 
-                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(delivered_tat, 'h', 1), ' ', -1) AS UNSIGNED) * 60 
-                  ELSE 0 END +
-                  CASE WHEN delivered_tat REGEXP '[0-9]+m' THEN 
-                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(delivered_tat, 'm', 1), ' ', -1) AS UNSIGNED)
-                  ELSE 0 END, 0
-                ) * 60 -- Convert minutes to seconds
-              ) ELSE NULL END
+              -- For delivered orders that are breached, calculate excess time beyond SLA
+              CASE WHEN TIMESTAMPDIFF(MINUTE, placed_time, delivered_time) > ${deliveredTATMinutes}
+                   THEN TIMESTAMPDIFF(SECOND, placed_time, delivered_time) 
+                   ELSE NULL END
               
             WHEN shipped_time IS NOT NULL AND delivered_time IS NULL THEN
-              CASE WHEN (
-                COALESCE(
-                  CASE WHEN shipped_tat REGEXP '[0-9]+d' THEN 
-                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(shipped_tat, 'd', 1), ' ', -1) AS UNSIGNED) * 1440 
-                  ELSE 0 END +
-                  CASE WHEN shipped_tat REGEXP '[0-9]+h' THEN 
-                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(shipped_tat, 'h', 1), ' ', -1) AS UNSIGNED) * 60 
-                  ELSE 0 END +
-                  CASE WHEN shipped_tat REGEXP '[0-9]+m' THEN 
-                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(shipped_tat, 'm', 1), ' ', -1) AS UNSIGNED)
-                  ELSE 0 END, 0
-                ) > ${shippedTATMinutes}
-              ) THEN (
-                COALESCE(
-                  CASE WHEN shipped_tat REGEXP '[0-9]+d' THEN 
-                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(shipped_tat, 'd', 1), ' ', -1) AS UNSIGNED) * 1440 
-                  ELSE 0 END +
-                  CASE WHEN shipped_tat REGEXP '[0-9]+h' THEN 
-                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(shipped_tat, 'h', 1), ' ', -1) AS UNSIGNED) * 60 
-                  ELSE 0 END +
-                  CASE WHEN shipped_tat REGEXP '[0-9]+m' THEN 
-                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(shipped_tat, 'm', 1), ' ', -1) AS UNSIGNED)
-                  ELSE 0 END, 0
-                ) * 60 -- Convert minutes to seconds
-              )               ELSE NULL END
+              -- For shipped orders that are breached, calculate excess time beyond SLA
+              CASE WHEN TIMESTAMPDIFF(MINUTE, placed_time, shipped_time) > ${shippedTATMinutes}
+                   THEN TIMESTAMPDIFF(SECOND, placed_time, shipped_time) 
+                   ELSE NULL END
               
             WHEN processed_time IS NOT NULL AND shipped_time IS NULL THEN
-              CASE WHEN (
-                COALESCE(
-                  CASE WHEN processed_tat REGEXP '[0-9]+d' THEN 
-                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(processed_tat, 'd', 1), ' ', -1) AS UNSIGNED) * 1440 
-                  ELSE 0 END +
-                  CASE WHEN processed_tat REGEXP '[0-9]+h' THEN 
-                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(processed_tat, 'h', 1), ' ', -1) AS UNSIGNED) * 60 
-                  ELSE 0 END +
-                  CASE WHEN processed_tat REGEXP '[0-9]+m' THEN 
-                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(processed_tat, 'm', 1), ' ', -1) AS UNSIGNED)
-                  ELSE 0 END, 0
-                ) > ${processedTATMinutes}
-              ) THEN (
-                COALESCE(
-                  CASE WHEN processed_tat REGEXP '[0-9]+d' THEN 
-                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(processed_tat, 'd', 1), ' ', -1) AS UNSIGNED) * 1440 
-                  ELSE 0 END +
-                  CASE WHEN processed_tat REGEXP '[0-9]+h' THEN 
-                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(processed_tat, 'h', 1), ' ', -1) AS UNSIGNED) * 60 
-                  ELSE 0 END +
-                  CASE WHEN processed_tat REGEXP '[0-9]+m' THEN 
-                    CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(processed_tat, 'm', 1), ' ', -1) AS UNSIGNED)
-                  ELSE 0 END, 0
-                ) * 60 -- Convert minutes to seconds
-              ) ELSE NULL END
+              -- For processed orders that are breached, calculate excess time beyond SLA
+              CASE WHEN TIMESTAMPDIFF(MINUTE, placed_time, processed_time) > ${processedTATMinutes}
+                   THEN TIMESTAMPDIFF(SECOND, placed_time, processed_time) 
+                   ELSE NULL END
+                   
             ELSE NULL
           END), 0) as avg_delay_sec
         FROM ${targetTable} o
