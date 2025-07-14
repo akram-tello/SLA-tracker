@@ -1,6 +1,6 @@
 import { getMasterDb, getAnalyticsDb } from './db';
 import { Connection } from 'mysql2/promise';
-import { formatMinutesToTimeString, parseTimeStringToMinutes, calculateRiskThreshold } from './utils';
+import { parseTimeStringToMinutes, calculateRiskThreshold } from './utils';
 
 export interface ETLResult {
   brand: string;
@@ -179,8 +179,10 @@ export class ETLService {
       const availableColumns = await this.getTableColumns(sourceTable, masterDb);
       console.log(`Available columns in ${sourceTable}:`, availableColumns);
       
-      // Build select fields
-      const selectFields = this.buildSelectFields(availableColumns, brand, country);
+      // Get related tables for payment and shipment data
+      const { paymentTable, shipmentTable } = await this.getRelatedTables(brand, country, masterDb);
+      
+      console.log(`Related tables found - Payment: ${paymentTable}, Shipment: ${shipmentTable}`);
       
       // Get total count
       const [countResult] = await masterDb.execute(`SELECT COUNT(*) as total FROM ${sourceTable}`);
@@ -192,14 +194,16 @@ export class ETLService {
         return { brand, country, success: true, processed: 0 };
       }
 
-      // Process in batches
-      const processed = await this.processBatches(
-        sourceTable, 
-        targetTable, 
-        selectFields, 
-        availableColumns,
-        totalRecords, 
-        masterDb, 
+      // Process in batches with new join-based approach
+      const processed = await this.processBatchesWithJoins(
+        sourceTable,
+        targetTable,
+        brand,
+        country,
+        paymentTable,
+        shipmentTable,
+        totalRecords,
+        masterDb,
         analyticsDb
       );
 
@@ -267,18 +271,32 @@ export class ETLService {
         order_status VARCHAR(50),
         shipping_status VARCHAR(50),
         confirmation_status VARCHAR(50),
-        processing_time DATETIME,
+        placed_time DATETIME,
+        processed_time DATETIME,
         shipped_time DATETIME,
         delivered_time DATETIME,
         processed_tat VARCHAR(20) COMMENT 'Formatted time string (e.g., "2h 30m")',
         shipped_tat VARCHAR(20) COMMENT 'Formatted time string (e.g., "2d 5h")',
         delivered_tat VARCHAR(20) COMMENT 'Formatted time string (e.g., "7d 12h")',
-        order_date DATE,
+        currency VARCHAR(10),
+        invoice_no VARCHAR(100),
         brand_name VARCHAR(100),
         country_code VARCHAR(10),
+        -- Payment table fields
+        card_type VARCHAR(50),
+        amount DECIMAL(10,2),
+        transactionid VARCHAR(100),
+        -- Shipment table fields
+        shipmentid VARCHAR(191),
+        shipping_method VARCHAR(191),
+        carrier VARCHAR(191),
+        tracking_url VARCHAR(191),
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        INDEX idx_order_date (order_date),
-        INDEX idx_brand_country (brand_name, country_code)
+        INDEX idx_order_date (placed_time),
+        INDEX idx_brand_country (brand_name, country_code),
+        INDEX idx_processed_time (processed_time),
+        INDEX idx_shipped_time (shipped_time),
+        INDEX idx_delivered_time (delivered_time)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
   }
@@ -299,72 +317,117 @@ export class ETLService {
   }
 
   /**
-   * Build select fields based on available columns
+   * Build select fields with joins for payment and shipment data
    */
-  private buildSelectFields(availableColumns: string[], brand: string, country: string): string[] {
-    const selectFields: string[] = [];
-    
-    // Required field - order_no (try different variations)
-    if (availableColumns.includes('order_no')) {
-      selectFields.push('order_no');
-    } else if (availableColumns.includes('order_number')) {
-      selectFields.push('order_number as order_no');
-    } else if (availableColumns.includes('orderid')) {
-      selectFields.push('orderid as order_no');
-    } else {
-      throw new Error('No order identifier column found');
-    }
-
-         // Optional fields - add if they exist
-     if (availableColumns.includes('order_status')) selectFields.push('order_status');
-     if (availableColumns.includes('shipping_status')) selectFields.push('shipping_status');
-     if (availableColumns.includes('confirmation_status')) selectFields.push('confirmation_status');
-     if (availableColumns.includes('processed_time')) selectFields.push('processed_time as processing_time');
-     if (availableColumns.includes('shipped_time')) selectFields.push('shipped_time');
-     if (availableColumns.includes('delivered_time')) selectFields.push('delivered_time');
-
-     // Calculate TAT fields with flexible column name matching
-     // Check for different possible column names for creation date
-     const createdDateColumn = availableColumns.find(col => 
-       col.includes('created') || col.includes('date') || col.includes('order_date')
-     );
-     
-     // Calculate TAT in minutes for all stages (will be formatted later)
-     if (availableColumns.includes('processed_time') && createdDateColumn) {
-       selectFields.push(`CASE WHEN processed_time IS NOT NULL AND ${createdDateColumn} IS NOT NULL THEN TIMESTAMPDIFF(MINUTE, ${createdDateColumn}, processed_time) ELSE NULL END as processed_tat_minutes`);
-     } else {
-       selectFields.push('NULL as processed_tat_minutes');
-     }
-     
-     if (availableColumns.includes('shipped_time') && availableColumns.includes('processed_time')) {
-       selectFields.push('CASE WHEN shipped_time IS NOT NULL AND processed_time IS NOT NULL THEN TIMESTAMPDIFF(MINUTE, processed_time, shipped_time) ELSE NULL END as shipped_tat_minutes');
-     } else {
-       selectFields.push('NULL as shipped_tat_minutes');
-     }
-     
-     if (availableColumns.includes('delivered_time') && availableColumns.includes('shipped_time')) {
-       selectFields.push('CASE WHEN delivered_time IS NOT NULL AND shipped_time IS NOT NULL THEN TIMESTAMPDIFF(MINUTE, shipped_time, delivered_time) ELSE NULL END as delivered_tat_minutes');
-     } else {
-       selectFields.push('NULL as delivered_tat_minutes');
-     }
-    
-    // Date fields
-    if (availableColumns.includes('order_created_date_time')) {
-      selectFields.push('DATE(order_created_date_time) as order_date');
-    } else if (availableColumns.includes('created_at')) {
-      selectFields.push('DATE(created_at) as order_date');
-    } else if (availableColumns.includes('order_date')) {
-      selectFields.push('order_date');
-    }
-
-    // Add brand and country
+  private buildSelectFieldsWithJoins(
+    brand: string, 
+    country: string,
+    orderTable: string,
+    paymentTable: string | null,
+    shipmentTable: string | null
+  ): string {
     const brandName = this.getBrandName(brand);
     const escapedBrandName = brandName.replace(/'/g, "''");
-    selectFields.push(`'${escapedBrandName}' as brand_name`);
-    selectFields.push(`UPPER('${country}') as country_code`);
-    selectFields.push('NOW() as updated_at');
 
-    return selectFields;
+    const selectFields = [
+      // From orders table
+      'o.order_no',
+      'o.order_status',
+      'o.shipping_status', 
+      'o.confirmation_status',
+      'o.order_created_date_time as placed_time',
+      'o.processed_time',
+      'o.shipped_time',
+      'o.delivered_time',
+      'o.processed_tat',
+      'o.shipped_tat', 
+      'o.delivered_tat',
+      'o.currency',
+      'o.invoice_no',
+      `'${escapedBrandName}' as brand_name`,
+      `UPPER('${country}') as country_code`,
+      
+      // From payment table (if exists)
+      paymentTable ? 'p.card_type' : 'NULL as card_type',
+      paymentTable ? 'p.amount' : 'NULL as amount',
+      paymentTable ? 'p.transactionid' : 'NULL as transactionid',
+      
+      // From shipment table (if exists)
+      shipmentTable ? 's.shipmentid' : 'NULL as shipmentid',
+      shipmentTable ? 's.shipping_method' : 'NULL as shipping_method',
+      shipmentTable ? 's.carrier' : 'NULL as carrier',
+      shipmentTable ? 's.tracking_url' : 'NULL as tracking_url',
+      
+      'NOW() as updated_at'
+    ];
+
+    return selectFields.join(', ');
+  }
+
+  /**
+   * Build JOIN clauses for payment and shipment tables
+   */
+  private buildJoinClauses(
+    orderTable: string,
+    paymentTable: string | null,
+    shipmentTable: string | null
+  ): string {
+    let joinClauses = `FROM ${orderTable} o`;
+    
+    if (paymentTable) {
+      joinClauses += ` LEFT JOIN ${paymentTable} p ON o.order_no = p.order_no`;
+    }
+    
+    if (shipmentTable) {
+      joinClauses += ` LEFT JOIN ${shipmentTable} s ON o.order_no = s.order_no`;
+    }
+    
+    return joinClauses;
+  }
+
+  /**
+   * Check if related tables exist for payment and shipment data
+   */
+  private async getRelatedTables(brand: string, country: string, masterDb: Connection): Promise<{
+    paymentTable: string | null;
+    shipmentTable: string | null;
+  }> {
+    const brandPart = this.getBrandTableName(brand);
+    const paymentTableName = `${brandPart}_${country}_payments`;
+    const shipmentTableName = `${brandPart}_${country}_shipments`;
+    
+    // Check if payment table exists
+    const [paymentExists] = await masterDb.execute(`
+      SELECT COUNT(*) as count
+      FROM INFORMATION_SCHEMA.TABLES 
+      WHERE TABLE_SCHEMA = DATABASE() 
+      AND TABLE_NAME = ?
+    `, [paymentTableName]);
+    
+    // Check if shipment table exists
+    const [shipmentExists] = await masterDb.execute(`
+      SELECT COUNT(*) as count
+      FROM INFORMATION_SCHEMA.TABLES 
+      WHERE TABLE_SCHEMA = DATABASE() 
+      AND TABLE_NAME = ?
+    `, [shipmentTableName]);
+    
+    return {
+      paymentTable: (paymentExists as { count: number }[])[0].count > 0 ? paymentTableName : null,
+      shipmentTable: (shipmentExists as { count: number }[])[0].count > 0 ? shipmentTableName : null
+    };
+  }
+
+  /**
+   * Get brand table name part for master DB table naming
+   */
+  private getBrandTableName(brandCode: string): string {
+    switch (brandCode) {
+      case 'vs': return 'victoriasecret';
+      case 'bbw': return 'bbw';
+      case 'rituals': return 'rituals';
+      default: return brandCode;
+    }
   }
 
   /**
@@ -380,13 +443,15 @@ export class ETLService {
   }
 
   /**
-   * Process data in batches
+   * Process data in batches with joins for payment and shipment data
    */
-  private async processBatches(
+  private async processBatchesWithJoins(
     sourceTable: string,
     targetTable: string,
-    selectFields: string[],
-    availableColumns: string[],
+    brand: string,
+    country: string,
+    paymentTable: string | null,
+    shipmentTable: string | null,
     totalRecords: number,
     masterDb: Connection,
     analyticsDb: Connection
@@ -396,11 +461,14 @@ export class ETLService {
     let offset = 0;
 
     while (offset < totalRecords) {
+      // Build the complete query with joins
+      const selectFields = this.buildSelectFieldsWithJoins(brand, country, sourceTable, paymentTable, shipmentTable);
+      const joinClauses = this.buildJoinClauses(sourceTable, paymentTable, shipmentTable);
+      
       const batchQuery = `
-        SELECT ${selectFields.join(', ')}
-        FROM ${sourceTable}
-        ORDER BY ${availableColumns.includes('order_created_date_time') ? 'order_created_date_time' : 
-                    availableColumns.includes('created_at') ? 'created_at' : '1'} DESC
+        SELECT ${selectFields}
+        ${joinClauses}
+        ORDER BY o.order_created_date_time DESC
         LIMIT ${batchSize} OFFSET ${offset}
       `;
 
@@ -414,38 +482,8 @@ export class ETLService {
       // Insert batch data
       for (const row of rows) {
         try {
-          // Transform TAT minute values to formatted strings
-          const transformedRow = { ...row };
-          
-          // Format processed TAT
-          if (row.processed_tat_minutes !== null && row.processed_tat_minutes !== undefined) {
-            transformedRow.processed_tat = formatMinutesToTimeString(Number(row.processed_tat_minutes));
-            delete transformedRow.processed_tat_minutes;
-          } else {
-            transformedRow.processed_tat = null;
-            delete transformedRow.processed_tat_minutes;
-          }
-          
-          // Format shipped TAT  
-          if (row.shipped_tat_minutes !== null && row.shipped_tat_minutes !== undefined) {
-            transformedRow.shipped_tat = formatMinutesToTimeString(Number(row.shipped_tat_minutes));
-            delete transformedRow.shipped_tat_minutes;
-          } else {
-            transformedRow.shipped_tat = null;
-            delete transformedRow.shipped_tat_minutes;
-          }
-          
-          // Format delivered TAT
-          if (row.delivered_tat_minutes !== null && row.delivered_tat_minutes !== undefined) {
-            transformedRow.delivered_tat = formatMinutesToTimeString(Number(row.delivered_tat_minutes));
-            delete transformedRow.delivered_tat_minutes;
-          } else {
-            transformedRow.delivered_tat = null;
-            delete transformedRow.delivered_tat_minutes;
-          }
-          
-          const columns = Object.keys(transformedRow);
-          const values = Object.values(transformedRow);
+          const columns = Object.keys(row);
+          const values = Object.values(row);
           const placeholders = columns.map(() => '?').join(', ');
           
           const upsertQuery = `
@@ -515,7 +553,7 @@ export class ETLService {
           orders_total, orders_on_time, orders_on_risk, orders_breached, avg_delay_sec
         )
         SELECT 
-          order_date,
+          DATE(placed_time) as summary_date,
           brand_name,
           '${brand}' as brand_code,
           country_code,
@@ -524,9 +562,8 @@ export class ETLService {
             WHEN delivered_time IS NOT NULL THEN 'Delivered'
             -- Order is in Shipped stage if it has shipped_time but no delivered_time
             WHEN shipped_time IS NOT NULL AND delivered_time IS NULL THEN 'Shipped'
-            -- Order is in Processed stage if it has processing_time but no shipped_time
-            WHEN processing_time IS NOT NULL AND shipped_time IS NULL THEN 'Processed'
-            -- Skip unconfirmed orders (Processing stage) - only track confirmed orders
+            -- Order is in Processed stage if it has processed_time but no shipped_time
+            WHEN processed_time IS NOT NULL AND shipped_time IS NULL THEN 'Processed'
             ELSE NULL
           END as current_stage,
           COUNT(*) as orders_total,
@@ -565,7 +602,7 @@ export class ETLService {
                 ) <= ${parseTimeStringToMinutes(String(shipped_tat))}
               ) THEN 1 ELSE 0 END
               
-            WHEN processing_time IS NOT NULL AND shipped_time IS NULL THEN
+            WHEN processed_time IS NOT NULL AND shipped_time IS NULL THEN
               -- For processed (not shipped) orders, check processed_tat against processed SLA
               CASE WHEN (
                 COALESCE(
@@ -638,7 +675,7 @@ export class ETLService {
                 ) <= ${parseTimeStringToMinutes(String(shipped_tat))}
               ) THEN 1 ELSE 0 END
               
-            WHEN processing_time IS NOT NULL AND shipped_time IS NULL THEN
+            WHEN processed_time IS NOT NULL AND shipped_time IS NULL THEN
               CASE WHEN (
                 COALESCE(
                   CASE WHEN processed_tat REGEXP '[0-9]+d' THEN 
@@ -699,7 +736,7 @@ export class ETLService {
                 ) > ${parseTimeStringToMinutes(String(shipped_tat))}
               ) THEN 1 ELSE 0 END
               
-            WHEN processing_time IS NOT NULL AND shipped_time IS NULL THEN
+            WHEN processed_time IS NOT NULL AND shipped_time IS NULL THEN
               CASE WHEN (
                 COALESCE(
                   CASE WHEN processed_tat REGEXP '[0-9]+d' THEN 
@@ -771,9 +808,9 @@ export class ETLService {
                     CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(shipped_tat, 'm', 1), ' ', -1) AS UNSIGNED)
                   ELSE 0 END, 0
                 ) * 60 -- Convert minutes to seconds
-              ) ELSE NULL END
+              )               ELSE NULL END
               
-            WHEN processing_time IS NOT NULL AND shipped_time IS NULL THEN
+            WHEN processed_time IS NOT NULL AND shipped_time IS NULL THEN
               CASE WHEN (
                 COALESCE(
                   CASE WHEN processed_tat REGEXP '[0-9]+d' THEN 
@@ -803,15 +840,15 @@ export class ETLService {
             ELSE NULL
           END), 0) as avg_delay_sec
         FROM ${targetTable} o
-        WHERE order_date IS NOT NULL
+        WHERE placed_time IS NOT NULL
           AND (
             delivered_time IS NOT NULL OR 
             shipped_time IS NOT NULL OR 
-            processing_time IS NOT NULL
+            processed_time IS NOT NULL
           )
-        GROUP BY order_date, brand_name, country_code, current_stage
-        HAVING current_stage IS NOT NULL
-        ORDER BY order_date, current_stage
+                  GROUP BY DATE(placed_time), brand_name, country_code, current_stage
+          HAVING current_stage IS NOT NULL
+          ORDER BY DATE(placed_time), current_stage
       `;
 
       await analyticsDb.execute(summaryQuery);

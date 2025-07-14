@@ -92,7 +92,7 @@ export async function GET(request: NextRequest) {
     }
 
     if (filters.from_date && filters.to_date) {
-      whereConditions.push('order_date BETWEEN ? AND ?');
+      whereConditions.push('DATE(placed_time) BETWEEN ? AND ?');
       params.push(filters.from_date, filters.to_date);
     }
 
@@ -103,7 +103,7 @@ export async function GET(request: NextRequest) {
       } else if (filters.stage === 'Shipped') {
         whereConditions.push('shipped_time IS NOT NULL AND delivered_time IS NULL');
       } else if (filters.stage === 'Processed') {
-        whereConditions.push('processing_time IS NOT NULL AND shipped_time IS NULL');
+        whereConditions.push('processed_time IS NOT NULL AND shipped_time IS NULL');
       }
     }
 
@@ -199,15 +199,16 @@ export async function GET(request: NextRequest) {
     const offset = (filters.page - 1) * filters.limit;
     const dataQuery = `
       SELECT 
-        o.order_no, o.order_status, o.shipping_status, o.order_date,
-        o.processing_time, o.shipped_time, o.delivered_time,
+        o.order_no, o.order_status, o.shipping_status, 
+        DATE(o.placed_time) as order_date,
+        o.processed_time, o.shipped_time, o.delivered_time,
         o.processed_tat, o.shipped_tat, o.delivered_tat,
         o.brand_name, o.country_code,
         ${slaStatusCase} as sla_status,
         CASE 
           WHEN o.delivered_time IS NOT NULL THEN 'Delivered'
           WHEN o.shipped_time IS NOT NULL AND o.delivered_time IS NULL THEN 'Shipped'
-          WHEN o.processing_time IS NOT NULL AND o.shipped_time IS NULL THEN 'Processed'
+          WHEN o.processed_time IS NOT NULL AND o.shipped_time IS NULL THEN 'Processed'
           ELSE 'Processing'
         END as current_stage
       FROM ${mainTable} o
@@ -215,7 +216,7 @@ export async function GET(request: NextRequest) {
                                AND o.country_code COLLATE utf8mb4_unicode_ci = tc.country_code COLLATE utf8mb4_unicode_ci
       ${whereClause}
       ${filters.sla_status ? `${whereClause ? 'AND' : 'WHERE'} (${slaStatusCase}) = ?` : ''}
-      ORDER BY o.order_date DESC 
+      ORDER BY o.placed_time DESC 
       LIMIT ${filters.limit} OFFSET ${offset}
     `;
     

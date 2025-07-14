@@ -161,7 +161,7 @@ interface Order {
   order_status: string
   shipping_status: string
   order_date: Date | string
-  processing_time?: Date | string | null
+  processed_time?: Date | string | null
   shipped_time?: Date | string | null
   delivered_time?: Date | string | null
   processed_tat?: string | null
@@ -298,7 +298,7 @@ function OrdersContent() {
       order.order_status,
       order.shipping_status,
       format(new Date(order.order_date), 'yyyy-MM-dd'),
-      order.processing_time ? format(new Date(order.processing_time), 'yyyy-MM-dd HH:mm') : '',
+      order.processed_time ? format(new Date(order.processed_time), 'yyyy-MM-dd HH:mm') : '',
       order.shipped_time ? format(new Date(order.shipped_time), 'yyyy-MM-dd HH:mm') : '',
       order.delivered_time ? format(new Date(order.delivered_time), 'yyyy-MM-dd HH:mm') : '',
       order.brand_name,
@@ -471,9 +471,9 @@ function OrdersContent() {
                       <TableCell>{order.country_code}</TableCell>
                       <TableCell>{format(new Date(order.order_date), 'MMM dd, yyyy')}</TableCell>
                       <TableCell>
-                        {order.processing_time ? (
+                        {order.processed_time ? (
                           <span className="text-sm text-gray-600 dark:text-gray-400">
-                            {format(new Date(order.processing_time), 'MMM dd, HH:mm')}
+                            {format(new Date(order.processed_time), 'MMM dd, HH:mm')}
                           </span>
                         ) : (
                           <span className="text-sm text-gray-400">-</span>
