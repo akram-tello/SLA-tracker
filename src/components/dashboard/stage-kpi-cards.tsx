@@ -55,6 +55,7 @@ export function StageKPICards() {
   // Helper function to get stage color
   const getStageColor = (stage: string) => {
     switch (stage.toLowerCase()) {
+      case 'not processed': return 'text-red-600'
       case 'processing': return 'text-gray-600'
       case 'processed': return 'text-blue-600'
       case 'shipped': return 'text-yellow-600'

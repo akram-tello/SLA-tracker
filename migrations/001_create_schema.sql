@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS sla_daily_summary (
     brand_name VARCHAR(50) NOT NULL,
     brand_code VARCHAR(10) NOT NULL,
     country_code VARCHAR(3) NOT NULL,
-    stage ENUM('Processed', 'Shipped', 'Delivered') NOT NULL,
+    stage ENUM('Not Processed', 'Processed', 'Shipped', 'Delivered') NOT NULL,
     orders_total INT NOT NULL DEFAULT 0,
     orders_on_time INT NOT NULL DEFAULT 0,
     orders_on_risk INT NOT NULL DEFAULT 0,

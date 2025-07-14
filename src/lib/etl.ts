@@ -562,6 +562,8 @@ export class ETLService {
           '${brand}' as brand_code,
           country_code,
           CASE 
+            -- Order is in Not Processed stage if confirmation_status = 'NOTCONFIRMED'
+            WHEN confirmation_status = 'NOTCONFIRMED' THEN 'Not Processed'
             -- Order is in Delivered stage if it has delivered_time
             WHEN delivered_time IS NOT NULL THEN 'Delivered'
             -- Order is in Shipped stage if it has shipped_time but no delivered_time
@@ -621,6 +623,10 @@ export class ETLService {
                   ELSE 0 END, 0
                 ) <= ${processedTATMinutes}
               ) THEN 1 ELSE 0 END
+              
+            WHEN confirmation_status = 'NOTCONFIRMED' THEN
+              -- For not processed orders, they are not yet in SLA workflow, so not counted as on-time
+              0
               
             ELSE 1 -- Orders still processing are considered on-time for now
           END) as orders_on_time,
@@ -705,6 +711,10 @@ export class ETLService {
                 ) <= ${processedTATMinutes}
               ) THEN 1 ELSE 0 END
               
+            WHEN confirmation_status = 'NOTCONFIRMED' THEN
+              -- For not processed orders, they are not yet in SLA workflow, so not counted as on-risk
+              0
+              
             ELSE 0
           END) as orders_on_risk,
           
@@ -754,6 +764,10 @@ export class ETLService {
                   ELSE 0 END, 0
                 ) > ${processedTATMinutes}
               ) THEN 1 ELSE 0 END
+              
+            WHEN confirmation_status = 'NOTCONFIRMED' THEN
+              -- For not processed orders, they are not yet in SLA workflow, so not counted as breached
+              0
               
             ELSE 0
           END) as orders_breached,
@@ -840,7 +854,6 @@ export class ETLService {
                   ELSE 0 END, 0
                 ) * 60 -- Convert minutes to seconds
               ) ELSE NULL END
-              
             ELSE NULL
           END), 0) as avg_delay_sec
         FROM ${targetTable} o
@@ -848,7 +861,8 @@ export class ETLService {
           AND (
             delivered_time IS NOT NULL OR 
             shipped_time IS NOT NULL OR 
-            processed_time IS NOT NULL
+            processed_time IS NOT NULL OR
+            confirmation_status = 'NOTCONFIRMED'
           )
                   GROUP BY DATE(placed_time), brand_name, country_code, current_stage
           HAVING current_stage IS NOT NULL

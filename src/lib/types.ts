@@ -30,7 +30,7 @@ export interface SLADailySummary {
   summary_date: Date;
   brand_name: string;
   country_code: string;
-  stage: 'Processed' | 'Shipped' | 'Delivered';
+  stage: 'Not Processed' | 'Processed' | 'Shipped' | 'Delivered';
   orders_total: number;
   orders_on_time: number;
   orders_on_risk: number;

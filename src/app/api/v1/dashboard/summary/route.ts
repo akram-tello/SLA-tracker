@@ -79,10 +79,11 @@ export async function GET(request: NextRequest) {
       GROUP BY stage
       ORDER BY 
         CASE stage 
-          WHEN 'Processed' THEN 1
-          WHEN 'Shipped' THEN 2
-          WHEN 'Delivered' THEN 3
-          ELSE 4
+          WHEN 'Not Processed' THEN 1
+          WHEN 'Processed' THEN 2
+          WHEN 'Shipped' THEN 3
+          WHEN 'Delivered' THEN 4
+          ELSE 5
         END
     `;
 
@@ -133,10 +134,11 @@ export async function GET(request: NextRequest) {
       GROUP BY stage
       ORDER BY 
         CASE stage 
-          WHEN 'Processed' THEN 1
-          WHEN 'Shipped' THEN 2
-          WHEN 'Delivered' THEN 3
-          ELSE 4
+          WHEN 'Not Processed' THEN 1
+          WHEN 'Processed' THEN 2
+          WHEN 'Shipped' THEN 3
+          WHEN 'Delivered' THEN 4
+          ELSE 5
         END
     `;
 
