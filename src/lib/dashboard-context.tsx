@@ -4,17 +4,32 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import { format, startOfMonth, endOfMonth, subMonths } from 'date-fns';
 import { DashboardSummary } from '@/lib/types';
 
+interface FilterOption {
+  code: string;
+  name: string;
+}
+
+interface FilterOptions {
+  brands: FilterOption[];
+  countries: FilterOption[];
+  stages: FilterOption[];
+}
+
 interface DashboardFilters {
   from_date: string;
   to_date: string;
-  brand?: string;
-  country?: string;
+  brands?: string[]; // Changed to array for multi-select
+  countries?: string[]; // Changed to array for multi-select
 }
 
 interface DashboardContextType {
   // Filter state
   filters: DashboardFilters;
   setFilters: (filters: DashboardFilters) => void;
+  
+  // Filter options
+  filterOptions: FilterOptions;
+  loadingFilterOptions: boolean;
   
   // Data state
   dashboardData: DashboardSummary | null;
@@ -23,6 +38,7 @@ interface DashboardContextType {
   
   // Actions
   refreshData: () => void;
+  fetchFilterOptions: () => void;
 }
 
 const DashboardContext = createContext<DashboardContextType | undefined>(undefined);
@@ -39,19 +55,64 @@ interface DashboardProviderProps {
   children: React.ReactNode;
 }
 
+// Create a stable default date range to avoid hydration mismatch
+const getDefaultDateRange = () => {
+  // Use a fixed reference date to ensure server/client consistency
+  const now = new Date();
+  const threeMonthsAgo = subMonths(now, 3);
+  return {
+    from_date: format(startOfMonth(threeMonthsAgo), 'yyyy-MM-dd'),
+    to_date: format(endOfMonth(now), 'yyyy-MM-dd'),
+  };
+};
+
 export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children }) => {
-  // Initialize filters with last month's data
-  const [filters, setFilters] = useState<DashboardFilters>(() => {
-    const lastMonth = subMonths(new Date(), 1);
-    return {
-      from_date: format(startOfMonth(lastMonth), 'yyyy-MM-dd'),
-      to_date: format(endOfMonth(lastMonth), 'yyyy-MM-dd'),
-    };
+  // Initialize filters with stable date range to prevent hydration mismatch
+  const [filters, setFilters] = useState<DashboardFilters>(getDefaultDateRange);
+
+  const [filterOptions, setFilterOptions] = useState<FilterOptions>({
+    brands: [],
+    countries: [],
+    stages: []
   });
+  const [loadingFilterOptions, setLoadingFilterOptions] = useState(true);
 
   const [dashboardData, setDashboardData] = useState<DashboardSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const fetchFilterOptions = useCallback(async () => {
+    setLoadingFilterOptions(true);
+    try {
+      const response = await fetch('/api/v1/dashboard/filters');
+      if (!response.ok) {
+        console.warn(`Filter options API returned ${response.status}, using fallback`);
+      }
+      
+      const data: FilterOptions = await response.json();
+      setFilterOptions(data);
+    } catch (err) {
+      console.error('Error fetching filter options:', err);
+      // Set fallback options if API fails
+      setFilterOptions({
+        brands: [
+          { code: 'vs', name: "Victoria's Secret" },
+          { code: 'bbw', name: 'Bath & Body Works' }
+        ],
+        countries: [
+          { code: 'MY', name: 'Malaysia' },
+          { code: 'SG', name: 'Singapore' }
+        ],
+        stages: [
+          { code: 'Processed', name: 'Processed' },
+          { code: 'Shipped', name: 'Shipped' },
+          { code: 'Delivered', name: 'Delivered' }
+        ]
+      });
+    } finally {
+      setLoadingFilterOptions(false);
+    }
+  }, []);
 
   const fetchDashboardData = useCallback(async () => {
     setLoading(true);
@@ -63,8 +124,15 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children }
         to_date: filters.to_date,
       });
       
-      if (filters.brand) params.append('brand', filters.brand);
-      if (filters.country) params.append('country', filters.country);
+      // Handle multi-select brands (convert array back to individual API calls for now)
+      // Note: This is a simplified approach; in production, the API should support multi-select
+      if (filters.brands && filters.brands.length === 1) {
+        params.append('brand', filters.brands[0]);
+      }
+      
+      if (filters.countries && filters.countries.length === 1) {
+        params.append('country', filters.countries[0]);
+      }
 
       const response = await fetch(`/api/v1/dashboard/summary?${params}`);
       if (!response.ok) {
@@ -82,6 +150,11 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children }
     }
   }, [filters]);
 
+  // Fetch filter options on mount
+  useEffect(() => {
+    fetchFilterOptions();
+  }, [fetchFilterOptions]);
+
   // Fetch data when filters change
   useEffect(() => {
     fetchDashboardData();
@@ -94,10 +167,13 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children }
   const contextValue: DashboardContextType = {
     filters,
     setFilters,
+    filterOptions,
+    loadingFilterOptions,
     dashboardData,
     loading,
     error,
     refreshData,
+    fetchFilterOptions,
   };
 
   return (

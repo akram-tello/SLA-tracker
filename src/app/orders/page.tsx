@@ -2,10 +2,11 @@
 
 import React, { useState, useEffect, Suspense } from "react"
 import { format } from "date-fns"
-import { Search, Download, ArrowLeft } from "lucide-react"
+import { Download, ArrowLeft } from "lucide-react"
 import Link from "next/link"
 import { OrderFilters } from "@/lib/types"
 import { useSearchParams } from "next/navigation"
+
 
 // Custom Tailwind components
 const Button = ({ 
@@ -45,39 +46,7 @@ const Button = ({
   );
 };
 
-const TextInput = ({ 
-  type = "text", 
-  placeholder, 
-  value, 
-  onChange, 
-  onKeyPress,
-  icon,
-  className = "" 
-}: { 
-  type?: string; 
-  placeholder?: string; 
-  value?: string; 
-  onChange?: (e: React.ChangeEvent<HTMLInputElement>) => void;
-  onKeyPress?: (e: React.KeyboardEvent<HTMLInputElement>) => void;
-  icon?: React.ComponentType<{ className?: string }>;
-  className?: string;
-}) => (
-  <div className="relative">
-    <input 
-      type={type}
-      placeholder={placeholder}
-      value={value}
-      onChange={onChange}
-      onKeyPress={onKeyPress}
-      className={`bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 ${icon ? 'pr-10' : ''} dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-blue-500 dark:focus:border-blue-500 ${className}`}
-    />
-    {icon && (
-      <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none">
-        {React.createElement(icon, { className: "h-4 w-4 text-gray-400" })}
-      </div>
-    )}
-  </div>
-);
+
 
 const Badge = ({ children, color = "gray" }: { children: React.ReactNode; color?: "success" | "warning" | "failure" | "gray" }) => {
   const colorClasses = {
@@ -100,25 +69,7 @@ const Card = ({ children, className = "" }: { children: React.ReactNode; classNa
   </div>
 );
 
-const Select = ({ 
-  children, 
-  value, 
-  onChange, 
-  className = "" 
-}: { 
-  children: React.ReactNode; 
-  value?: string; 
-  onChange?: (e: React.ChangeEvent<HTMLSelectElement>) => void;
-  className?: string;
-}) => (
-  <select 
-    value={value}
-    onChange={onChange}
-    className={`bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 dark:bg-gray-700 dark:border-gray-600 dark:placeholder-gray-400 dark:text-white dark:focus:ring-blue-500 dark:focus:border-blue-500 ${className}`}
-  >
-    {children}
-  </select>
-);
+
 
 const Table = ({ children, hoverable }: { children: React.ReactNode; hoverable?: boolean }) => (
   <table className={`w-full text-sm text-left text-gray-500 dark:text-gray-400 ${hoverable ? 'hover:bg-gray-50' : ''}`}>
@@ -258,14 +209,6 @@ function OrdersContent() {
     }))
   }
 
-  const handleFilterChange = (key: keyof OrderFilters, value: string | boolean | undefined) => {
-    setFilters(prev => ({
-      ...prev,
-      page: 1,
-      [key]: value,
-    }))
-  }
-
   const handlePageChange = (newPage: number) => {
     setFilters(prev => ({
       ...prev,
@@ -339,68 +282,34 @@ function OrdersContent() {
           </Button>
         </div>
 
-        {/* Filters */}
-        <Card className="border-0 shadow-sm">
-          <div className="p-6">
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
-              <div className="relative">
-                <TextInput
-                  type="text"
-                  placeholder="Search by order number..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
-                  icon={Search}
-                />
-              </div>
-              
-
-
-              <Select
-                value={filters.sla_status || ''}
-                onChange={(e) => handleFilterChange('sla_status', e.target.value || undefined)}
-              >
-                <option value="">All SLA Status</option>
-                <option value="On Time">On Time</option>
-                <option value="At Risk">At Risk</option>
-                <option value="Breached">Breached</option>
-              </Select>
-
-              <Select
-                value={filters.stage || ''}
-                onChange={(e) => handleFilterChange('stage', e.target.value || undefined)}
-              >
-                <option value="">All Stages</option>
-                <option value="Processed">Processed</option>
-                <option value="Shipped">Shipped</option>
-                <option value="Delivered">Delivered</option>
-              </Select>
-
-              <Select
-                value={filters.brand || ''}
-                onChange={(e) => handleFilterChange('brand', e.target.value || undefined)}
-              >
-                <option value="">All Brands</option>
-                <option value="Victoria's Secret">Victoria&apos;s Secret</option>
-                <option value="Bath & Body Works">Bath & Body Works</option>
-              </Select>
+        {/* Simple Search */}
+        <Card className="mb-6">
+          <div className="flex gap-4 items-end">
+            <div className="flex-1">
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Search Order Number
+              </label>
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="Enter order number..."
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+              />
             </div>
-            
-            <div className="flex gap-4">
-              <Button onClick={handleSearch} color="blue">
-                <Search className="h-4 w-4 mr-2" />
-                Search
-              </Button>
-              <Button 
-                onClick={() => {
-                  setSearchTerm('')
-                  setFilters({ page: 1, limit: 20 })
-                }}
-                color="gray"
-              >
-                Clear Filters
-              </Button>
-            </div>
+            <Button onClick={handleSearch} disabled={loading}>
+              Search
+            </Button>
+            <Button
+              color="gray"
+              onClick={() => {
+                setSearchTerm('')
+                setFilters({ page: 1, limit: 20 })
+              }}
+              disabled={loading}
+            >
+              Clear
+            </Button>
           </div>
         </Card>
 
