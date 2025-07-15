@@ -83,8 +83,8 @@ export function StageBreakdown() {
   // Helper function to create drill-down URLs
   const getDrillDownUrl = (stage: string) => {
     const params = new URLSearchParams()
-    if (filters.brand) params.append('brand', filters.brand)
-    if (filters.country) params.append('country', filters.country)
+    if (filters.brands && filters.brands.length === 1) params.append('brand', filters.brands[0])
+    if (filters.countries && filters.countries.length === 1) params.append('country', filters.countries[0])
     if (filters.from_date) params.append('from_date', filters.from_date)
     if (filters.to_date) params.append('to_date', filters.to_date)
     params.append('stage', stage)
