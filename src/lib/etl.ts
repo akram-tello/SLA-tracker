@@ -526,15 +526,31 @@ export class ETLService {
       `, [brandName, country.toUpperCase()]);
       
       const tatConfigArray = tatConfigRows as Record<string, string | number>[];
+      
+      // Enhanced validation with fallback defaults
+      let tatConfig: Record<string, string | number>;
       if (tatConfigArray.length === 0) {
-        console.warn(`No TAT config found for ${brandName}/${country.toUpperCase()}, skipping summary generation`);
-        return;
+        console.warn(`No TAT config found for ${brandName}/${country.toUpperCase()}, using fallback defaults`);
+        
+        // Fallback TAT configuration
+        tatConfig = {
+          processed_tat: '2h',      // 2 hours default
+          shipped_tat: '2d',        // 2 days default  
+          delivered_tat: '7d',      // 7 days default
+          risk_pct: 80              // 80% risk threshold default
+        };
+        
+        // Log the fallback usage for monitoring
+        console.log(`Applied fallback TAT config for ${brandName}/${country.toUpperCase()}:`, tatConfig);
+      } else {
+        tatConfig = tatConfigArray[0];
       }
       
-      const tatConfig = tatConfigArray[0];
       const { processed_tat, shipped_tat, delivered_tat, risk_pct } = tatConfig;
       
-              // Convert TAT values to minutes and calculate risk thresholds
+      // Validate TAT values before processing
+      try {
+        // Convert TAT values to minutes and calculate risk thresholds
         const processedTATMinutes = parseTimeStringToMinutes(String(processed_tat));
         const shippedTATMinutes = parseTimeStringToMinutes(String(shipped_tat));
         const deliveredTATMinutes = parseTimeStringToMinutes(String(delivered_tat));
@@ -543,152 +559,443 @@ export class ETLService {
         const shippedRiskThreshold = parseTimeStringToMinutes(calculateRiskThreshold(String(shipped_tat), Number(risk_pct)));
         const deliveredRiskThreshold = parseTimeStringToMinutes(calculateRiskThreshold(String(delivered_tat), Number(risk_pct)));
 
-      // First, clear existing summaries for this brand/country to avoid duplicates
-      await analyticsDb.execute(`
-        DELETE FROM sla_daily_summary 
-        WHERE brand_name = ? AND country_code = ?
-      `, [brandName, country.toUpperCase()]);
+        // Validate converted values
+        if (processedTATMinutes <= 0 || shippedTATMinutes <= 0 || deliveredTATMinutes <= 0) {
+          throw new Error(`Invalid TAT values: processed=${processed_tat}, shipped=${shipped_tat}, delivered=${delivered_tat}`);
+        }
 
-      // Generate summary with proper stage assignment based on current order status
-      // Each order appears in ONLY ONE stage based on its current status
-      const summaryQuery = `
-        INSERT INTO sla_daily_summary (
-          summary_date, brand_name, brand_code, country_code, stage,
-          orders_total, orders_on_time, orders_on_risk, orders_breached, avg_delay_sec
-        )
-        SELECT 
-          DATE(placed_time) as summary_date,
-          brand_name,
-          '${brand}' as brand_code,
-          country_code,
-          CASE 
-            -- Order is in Not Processed stage if confirmation_status = 'NOTCONFIRMED'
-            WHEN confirmation_status = 'NOTCONFIRMED' THEN 'Not Processed'
-            -- Order is in Delivered stage if it has delivered_time
-            WHEN delivered_time IS NOT NULL THEN 'Delivered'
-            -- Order is in Shipped stage if it has shipped_time but no delivered_time
-            WHEN shipped_time IS NOT NULL AND delivered_time IS NULL THEN 'Shipped'
-            -- Order is in Processed stage if it has processed_time but no shipped_time
-            WHEN processed_time IS NOT NULL AND shipped_time IS NULL THEN 'Processed'
-            ELSE NULL
-          END as current_stage,
-          COUNT(*) as orders_total,
-          
-          -- Calculate SLA performance based on the CURRENT stage
-          SUM(CASE 
-            WHEN delivered_time IS NOT NULL THEN
-              -- For delivered orders, calculate actual time from placed to delivered and compare with SLA
-              CASE WHEN TIMESTAMPDIFF(MINUTE, placed_time, delivered_time) <= ${deliveredTATMinutes} 
-                   THEN 1 ELSE 0 END
-            
-            WHEN shipped_time IS NOT NULL AND delivered_time IS NULL THEN
-              -- For shipped (not delivered) orders, calculate actual time from placed to shipped and compare with SLA
-              CASE WHEN TIMESTAMPDIFF(MINUTE, placed_time, shipped_time) <= ${shippedTATMinutes} 
-                   THEN 1 ELSE 0 END
-              
-            WHEN processed_time IS NOT NULL AND shipped_time IS NULL THEN
-              -- For processed (not shipped) orders, calculate actual time from placed to processed and compare with SLA
-              CASE WHEN TIMESTAMPDIFF(MINUTE, placed_time, processed_time) <= ${processedTATMinutes} 
-                   THEN 1 ELSE 0 END
-              
-            WHEN confirmation_status = 'NOTCONFIRMED' THEN
-              -- For not processed orders, they are not yet in SLA workflow, so not counted as on-time
-              0
-              
-            ELSE 1 -- Orders still processing are considered on-time for now
-          END) as orders_on_time,
-          
-          -- Calculate on-risk orders (between risk threshold and SLA threshold)
-          SUM(CASE 
-            WHEN delivered_time IS NOT NULL THEN
-              -- For delivered orders, check if actual time is between risk threshold and SLA threshold
-              CASE WHEN TIMESTAMPDIFF(MINUTE, placed_time, delivered_time) > ${deliveredRiskThreshold} 
-                        AND TIMESTAMPDIFF(MINUTE, placed_time, delivered_time) <= ${deliveredTATMinutes}
-                   THEN 1 ELSE 0 END
-              
-            WHEN shipped_time IS NOT NULL AND delivered_time IS NULL THEN
-              -- For shipped orders, check if actual time is between risk threshold and SLA threshold  
-              CASE WHEN TIMESTAMPDIFF(MINUTE, placed_time, shipped_time) > ${shippedRiskThreshold} 
-                        AND TIMESTAMPDIFF(MINUTE, placed_time, shipped_time) <= ${shippedTATMinutes}
-                   THEN 1 ELSE 0 END
-              
-            WHEN processed_time IS NOT NULL AND shipped_time IS NULL THEN
-              -- For processed orders, check if actual time is between risk threshold and SLA threshold
-              CASE WHEN TIMESTAMPDIFF(MINUTE, placed_time, processed_time) > ${processedRiskThreshold} 
-                        AND TIMESTAMPDIFF(MINUTE, placed_time, processed_time) <= ${processedTATMinutes}
-                   THEN 1 ELSE 0 END
-              
-            WHEN confirmation_status = 'NOTCONFIRMED' THEN
-              -- For not processed orders, they are not yet in SLA workflow, so not counted as on-risk
-              0
-              
-            ELSE 0
-          END) as orders_on_risk,
-          
-          -- Calculate breached orders (exceeded SLA threshold)
-          SUM(CASE 
-            WHEN delivered_time IS NOT NULL THEN
-              -- For delivered orders, check if actual time exceeds SLA threshold
-              CASE WHEN TIMESTAMPDIFF(MINUTE, placed_time, delivered_time) > ${deliveredTATMinutes} 
-                   THEN 1 ELSE 0 END
-              
-            WHEN shipped_time IS NOT NULL AND delivered_time IS NULL THEN
-              -- For shipped orders, check if actual time exceeds SLA threshold
-              CASE WHEN TIMESTAMPDIFF(MINUTE, placed_time, shipped_time) > ${shippedTATMinutes} 
-                   THEN 1 ELSE 0 END
-              
-            WHEN processed_time IS NOT NULL AND shipped_time IS NULL THEN
-              -- For processed orders, check if actual time exceeds SLA threshold
-              CASE WHEN TIMESTAMPDIFF(MINUTE, placed_time, processed_time) > ${processedTATMinutes} 
-                   THEN 1 ELSE 0 END
-              
-            WHEN confirmation_status = 'NOTCONFIRMED' THEN
-              -- For not processed orders, they are not yet in SLA workflow, so not counted as breached
-              0
-              
-            ELSE 0
-          END) as orders_breached,
-          
-          -- Calculate average delay for breached orders only (in seconds)
-          COALESCE(AVG(CASE 
-            WHEN delivered_time IS NOT NULL THEN
-              -- For delivered orders that are breached, calculate excess time beyond SLA
-              CASE WHEN TIMESTAMPDIFF(MINUTE, placed_time, delivered_time) > ${deliveredTATMinutes}
-                   THEN TIMESTAMPDIFF(SECOND, placed_time, delivered_time) 
-                   ELSE NULL END
-              
-            WHEN shipped_time IS NOT NULL AND delivered_time IS NULL THEN
-              -- For shipped orders that are breached, calculate excess time beyond SLA
-              CASE WHEN TIMESTAMPDIFF(MINUTE, placed_time, shipped_time) > ${shippedTATMinutes}
-                   THEN TIMESTAMPDIFF(SECOND, placed_time, shipped_time) 
-                   ELSE NULL END
-              
-            WHEN processed_time IS NOT NULL AND shipped_time IS NULL THEN
-              -- For processed orders that are breached, calculate excess time beyond SLA
-              CASE WHEN TIMESTAMPDIFF(MINUTE, placed_time, processed_time) > ${processedTATMinutes}
-                   THEN TIMESTAMPDIFF(SECOND, placed_time, processed_time) 
-                   ELSE NULL END
-                   
-            ELSE NULL
-          END), 0) as avg_delay_sec
-        FROM ${targetTable} o
-        WHERE placed_time IS NOT NULL
-          AND (
-            delivered_time IS NOT NULL OR 
-            shipped_time IS NOT NULL OR 
-            processed_time IS NOT NULL OR
-            confirmation_status = 'NOTCONFIRMED'
+        console.log(`TAT Configuration for ${brandName}/${country.toUpperCase()}:`, {
+          processed: `${processed_tat} (${processedTATMinutes}min)`,
+          shipped: `${shipped_tat} (${shippedTATMinutes}min)`,
+          delivered: `${delivered_tat} (${deliveredTATMinutes}min)`,
+          risk_pct: `${risk_pct}%`
+        });
+
+        // Validate target table exists before processing
+        const [tableCheck] = await analyticsDb.execute(`
+          SELECT COUNT(*) as count FROM INFORMATION_SCHEMA.TABLES 
+          WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?
+        `, [targetTable]);
+        
+        const tableExists = (tableCheck as { count: number }[])[0].count > 0;
+        if (!tableExists) {
+          throw new Error(`Target table ${targetTable} does not exist`);
+        }
+
+        // Check if target table has any data
+        const [dataCheck] = await analyticsDb.execute(`SELECT COUNT(*) as count FROM ${targetTable}`);
+        const recordCount = (dataCheck as { count: number }[])[0].count;
+        
+        if (recordCount === 0) {
+          console.warn(`Target table ${targetTable} is empty, skipping summary generation`);
+          return;
+        }
+
+        console.log(`Processing ${recordCount} records from ${targetTable}`);
+
+        // First, clear existing summaries for this brand/country to avoid duplicates
+        await analyticsDb.execute(`
+          DELETE FROM sla_daily_summary 
+          WHERE brand_name = ? AND country_code = ?
+        `, [brandName, country.toUpperCase()]);
+
+        // Enhanced summary query with better stage handling
+        const summaryQuery = `
+          INSERT INTO sla_daily_summary (
+            summary_date, brand_name, brand_code, country_code, stage,
+            orders_total, orders_on_time, orders_on_risk, orders_breached, avg_delay_sec
           )
-                  GROUP BY DATE(placed_time), brand_name, country_code, current_stage
-          HAVING current_stage IS NOT NULL
+          SELECT 
+            DATE(placed_time) as summary_date,
+            brand_name,
+            '${brand}' as brand_code,
+            country_code,
+            CASE 
+              -- Order is in Not Processed stage if confirmation_status = 'NOTCONFIRMED'
+              WHEN confirmation_status = 'NOTCONFIRMED' THEN 'Not Processed'
+              -- Order is in Delivered stage if it has delivered_time
+              WHEN delivered_time IS NOT NULL THEN 'Delivered'
+              -- Order is in Shipped stage if it has shipped_time but no delivered_time
+              WHEN shipped_time IS NOT NULL AND delivered_time IS NULL THEN 'Shipped'
+              -- Order is in Processed stage if it has processed_time but no shipped_time
+              WHEN processed_time IS NOT NULL AND shipped_time IS NULL THEN 'Processed'
+              -- Fallback for edge cases - orders with placed_time but no clear stage
+              WHEN placed_time IS NOT NULL THEN 'Not Processed'
+              ELSE 'Unknown'
+            END as current_stage,
+            COUNT(*) as orders_total,
+            
+            -- Calculate SLA performance based on the CURRENT stage
+            SUM(CASE 
+              WHEN delivered_time IS NOT NULL THEN
+                -- For delivered orders, calculate actual time from placed to delivered and compare with SLA
+                CASE WHEN TIMESTAMPDIFF(MINUTE, placed_time, delivered_time) <= ${deliveredTATMinutes} 
+                     THEN 1 ELSE 0 END
+              
+              WHEN shipped_time IS NOT NULL AND delivered_time IS NULL THEN
+                -- For shipped (not delivered) orders, calculate actual time from placed to shipped and compare with SLA
+                CASE WHEN TIMESTAMPDIFF(MINUTE, placed_time, shipped_time) <= ${shippedTATMinutes}
+                     THEN 1 ELSE 0 END
+                
+              WHEN processed_time IS NOT NULL AND shipped_time IS NULL THEN
+                -- For processed (not shipped) orders, calculate actual time from placed to processed and compare with SLA
+                CASE WHEN TIMESTAMPDIFF(MINUTE, placed_time, processed_time) <= ${processedTATMinutes} 
+                     THEN 1 ELSE 0 END
+                
+              WHEN confirmation_status = 'NOTCONFIRMED' THEN
+                -- For not processed orders, they are not yet in SLA workflow, so not counted as on-time
+                0
+                
+              ELSE 0 -- Default case for edge scenarios
+            END) as orders_on_time,
+            
+            -- Calculate on-risk orders (between risk threshold and SLA threshold)
+            SUM(CASE 
+              WHEN delivered_time IS NOT NULL THEN
+                -- For delivered orders, check if actual time is between risk threshold and SLA threshold
+                CASE WHEN TIMESTAMPDIFF(MINUTE, placed_time, delivered_time) > ${deliveredRiskThreshold} 
+                          AND TIMESTAMPDIFF(MINUTE, placed_time, delivered_time) <= ${deliveredTATMinutes}
+                     THEN 1 ELSE 0 END
+                
+              WHEN shipped_time IS NOT NULL AND delivered_time IS NULL THEN
+                -- For shipped orders, check if actual time is between risk threshold and SLA threshold  
+                CASE WHEN TIMESTAMPDIFF(MINUTE, placed_time, shipped_time) > ${shippedRiskThreshold} 
+                          AND TIMESTAMPDIFF(MINUTE, placed_time, shipped_time) <= ${shippedTATMinutes}
+                     THEN 1 ELSE 0 END
+                
+              WHEN processed_time IS NOT NULL AND shipped_time IS NULL THEN
+                -- For processed orders, check if actual time is between risk threshold and SLA threshold
+                CASE WHEN TIMESTAMPDIFF(MINUTE, placed_time, processed_time) > ${processedRiskThreshold}
+                          AND TIMESTAMPDIFF(MINUTE, placed_time, processed_time) <= ${processedTATMinutes}
+                     THEN 1 ELSE 0 END
+                
+              WHEN confirmation_status = 'NOTCONFIRMED' THEN
+                -- For not processed orders, they are not yet in SLA workflow, so not counted as on-risk
+                0
+                
+              ELSE 0
+            END) as orders_on_risk,
+            
+            -- Calculate breached orders (exceeded SLA threshold)
+            SUM(CASE 
+              WHEN delivered_time IS NOT NULL THEN
+                -- For delivered orders, check if actual time exceeds SLA threshold
+                CASE WHEN TIMESTAMPDIFF(MINUTE, placed_time, delivered_time) > ${deliveredTATMinutes} 
+                     THEN 1 ELSE 0 END
+                
+              WHEN shipped_time IS NOT NULL AND delivered_time IS NULL THEN
+                -- For shipped orders, check if actual time exceeds SLA threshold
+                CASE WHEN TIMESTAMPDIFF(MINUTE, placed_time, shipped_time) > ${shippedTATMinutes} 
+                     THEN 1 ELSE 0 END
+                
+              WHEN processed_time IS NOT NULL AND shipped_time IS NULL THEN
+                -- For processed orders, check if actual time exceeds SLA threshold
+                CASE WHEN TIMESTAMPDIFF(MINUTE, placed_time, processed_time) > ${processedTATMinutes} 
+                     THEN 1 ELSE 0 END
+                
+              WHEN confirmation_status = 'NOTCONFIRMED' THEN
+                -- For not processed orders, they are not yet in SLA workflow, so not counted as breached
+                0
+                
+              ELSE 0
+            END) as orders_breached,
+            
+            -- Calculate average delay for breached orders only (in seconds)
+            COALESCE(AVG(CASE 
+              WHEN delivered_time IS NOT NULL THEN
+                -- For delivered orders that are breached, calculate excess time beyond SLA
+                CASE WHEN TIMESTAMPDIFF(MINUTE, placed_time, delivered_time) > ${deliveredTATMinutes}
+                     THEN TIMESTAMPDIFF(SECOND, placed_time, delivered_time) 
+                     ELSE NULL END
+                
+              WHEN shipped_time IS NOT NULL AND delivered_time IS NULL THEN
+                -- For shipped orders that are breached, calculate excess time beyond SLA
+                CASE WHEN TIMESTAMPDIFF(MINUTE, placed_time, shipped_time) > ${shippedTATMinutes}
+                     THEN TIMESTAMPDIFF(SECOND, placed_time, shipped_time) 
+                     ELSE NULL END
+                
+              WHEN processed_time IS NOT NULL AND shipped_time IS NULL THEN
+                -- For processed orders that are breached, calculate excess time beyond SLA
+                CASE WHEN TIMESTAMPDIFF(MINUTE, placed_time, processed_time) > ${processedTATMinutes}
+                     THEN TIMESTAMPDIFF(SECOND, placed_time, processed_time) 
+                     ELSE NULL END
+                     
+              ELSE NULL
+            END), 0) as avg_delay_sec
+          FROM ${targetTable} o
+          WHERE placed_time IS NOT NULL
+            AND (
+              delivered_time IS NOT NULL OR 
+              shipped_time IS NOT NULL OR 
+              processed_time IS NOT NULL OR
+              confirmation_status = 'NOTCONFIRMED'
+            )
+          GROUP BY DATE(placed_time), brand_name, country_code, current_stage
+          HAVING current_stage IS NOT NULL AND current_stage != 'Unknown'
           ORDER BY DATE(placed_time), current_stage
-      `;
+        `;
 
-      await analyticsDb.execute(summaryQuery);
+        // Execute summary generation with error handling
+        const result = await analyticsDb.execute(summaryQuery);
+        const affectedRows = (result as [{ affectedRows?: number }, unknown])[0]?.affectedRows || 0;
+        
+        console.log(`Successfully generated daily summary for ${brand}_${country}: ${affectedRows} summary records created`);
+        
+        // Log summary statistics for validation
+        const [summaryStats] = await analyticsDb.execute(`
+          SELECT 
+            COUNT(DISTINCT summary_date) as date_count,
+            COUNT(DISTINCT stage) as stage_count,
+            SUM(orders_total) as total_orders,
+            MIN(summary_date) as min_date,
+            MAX(summary_date) as max_date
+          FROM sla_daily_summary 
+          WHERE brand_name = ? AND country_code = ?
+        `, [brandName, country.toUpperCase()]);
+        
+        console.log(`Summary statistics for ${brandName}/${country.toUpperCase()}:`, summaryStats);
+        
+      } catch (tatError) {
+        console.error(`TAT configuration error for ${brandName}/${country.toUpperCase()}:`, tatError);
+        throw new Error(`Invalid TAT configuration: ${tatError instanceof Error ? tatError.message : 'Unknown TAT error'}`);
+      }
       
-      console.log(`Generated daily summary with proper stage assignment: ${brand}_${country}`);
     } catch (error) {
-      console.warn(`Failed to generate daily summary for ${brand}_${country}:`, error);
+      console.error(`Failed to generate daily summary for ${brand}_${country}:`, error);
+      
+      // Enhanced error logging with context
+      const errorContext = {
+        brand,
+        country,
+        targetTable,
+        timestamp: new Date().toISOString(),
+        error: error instanceof Error ? error.message : 'Unknown error'
+      };
+      
+      console.error('Daily summary generation error context:', errorContext);
+      
+      // Don't throw the error to prevent ETL failure - log and continue
+      // This allows other brand/country combinations to succeed
+    }
+  }
+
+  /**
+   * Detect and cleanup orphaned data in sla_daily_summary
+   * Returns summary of orphaned records found and cleaned
+   */
+  async cleanupOrphanedSummaryData(): Promise<{
+    orphaned_records: Array<{
+      brand_name: string;
+      country_code: string;
+      brand_code: string;
+      missing_table: string;
+      record_count: number;
+    }>;
+    total_orphaned: number;
+    cleanup_performed: boolean;
+  }> {
+    const analyticsDb = await this.getAnalyticsConnection();
+    
+    try {
+      // Get all unique brand/country combinations from sla_daily_summary
+      const [summaryBrands] = await analyticsDb.execute(`
+        SELECT DISTINCT brand_name, country_code, brand_code
+        FROM sla_daily_summary
+        ORDER BY brand_name, country_code
+      `);
+      
+      const summaryData = summaryBrands as Array<{
+        brand_name: string;
+        country_code: string;
+        brand_code: string;
+      }>;
+      
+      console.log(`Found ${summaryData.length} unique brand/country combinations in sla_daily_summary`);
+      
+      const orphanedRecords = [];
+      
+      // Check each combination to see if corresponding order table exists
+      for (const record of summaryData) {
+        const { brand_name, country_code, brand_code } = record;
+        const expectedTableName = `orders_${brand_code}_${country_code.toLowerCase()}`;
+        
+        // Check if the expected order table exists
+        const [tableCheck] = await analyticsDb.execute(`
+          SELECT COUNT(*) as count 
+          FROM INFORMATION_SCHEMA.TABLES 
+          WHERE TABLE_SCHEMA = DATABASE() 
+          AND TABLE_NAME = ?
+        `, [expectedTableName]);
+        
+        const tableExists = (tableCheck as { count: number }[])[0].count > 0;
+        
+        if (!tableExists) {
+          // Count orphaned records for this brand/country
+          const [countResult] = await analyticsDb.execute(`
+            SELECT COUNT(*) as count 
+            FROM sla_daily_summary 
+            WHERE brand_name = ? AND country_code = ?
+          `, [brand_name, country_code]);
+          
+          const recordCount = (countResult as { count: number }[])[0].count;
+          
+          orphanedRecords.push({
+            brand_name,
+            country_code,
+            brand_code,
+            missing_table: expectedTableName,
+            record_count: recordCount
+          });
+          
+          console.warn(`Found ${recordCount} orphaned records for ${brand_name}/${country_code} - missing table: ${expectedTableName}`);
+        }
+      }
+      
+      const totalOrphaned = orphanedRecords.reduce((sum, record) => sum + record.record_count, 0);
+      
+      if (orphanedRecords.length === 0) {
+        console.log('No orphaned data found in sla_daily_summary');
+        return {
+          orphaned_records: [],
+          total_orphaned: 0,
+          cleanup_performed: false
+        };
+      }
+      
+      console.log(`Found ${totalOrphaned} total orphaned records across ${orphanedRecords.length} brand/country combinations`);
+      
+      // Perform cleanup - remove orphaned records
+      let cleanupPerformed = false;
+      
+      for (const record of orphanedRecords) {
+        const { brand_name, country_code, record_count } = record;
+        
+        try {
+          await analyticsDb.execute(`
+            DELETE FROM sla_daily_summary 
+            WHERE brand_name = ? AND country_code = ?
+          `, [brand_name, country_code]);
+          
+          console.log(`Cleaned up ${record_count} orphaned records for ${brand_name}/${country_code}`);
+          cleanupPerformed = true;
+          
+        } catch (deleteError) {
+          console.error(`Failed to cleanup orphaned records for ${brand_name}/${country_code}:`, deleteError);
+        }
+      }
+      
+      return {
+        orphaned_records: orphanedRecords,
+        total_orphaned: totalOrphaned,
+        cleanup_performed: cleanupPerformed
+      };
+      
+    } catch (error) {
+      console.error('Error during orphaned data cleanup:', error);
+      throw new Error(`Orphaned data cleanup failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Validate data integrity across the system
+   * Checks for missing TAT configs, orphaned data, and table consistency
+   */
+  async validateDataIntegrity(): Promise<{
+    tat_config_issues: Array<{
+      brand_name: string;
+      country_code: string;
+      issue: string;
+    }>;
+         orphaned_summary_data: {
+       orphaned_records: Array<{
+         brand_name: string;
+         country_code: string;
+         brand_code: string;
+         missing_table: string;
+         record_count: number;
+       }>;
+       total_orphaned: number;
+       cleanup_performed: boolean;
+     };
+    missing_order_tables: Array<{
+      expected_table: string;
+      source_pattern: string;
+      issue: string;
+    }>;
+    summary: {
+      total_issues: number;
+      tat_issues: number;
+      orphaned_records: number;
+      missing_tables: number;
+    };
+  }> {
+    const analyticsDb = await this.getAnalyticsConnection();
+    
+    try {
+      console.log('Starting comprehensive data integrity validation...');
+      
+      // 1. Check for missing TAT configurations
+      const tatConfigIssues = [];
+      const [summaryBrands] = await analyticsDb.execute(`
+        SELECT DISTINCT brand_name, country_code 
+        FROM sla_daily_summary
+      `);
+      
+      const brands = summaryBrands as Array<{ brand_name: string; country_code: string }>;
+      
+      for (const { brand_name, country_code } of brands) {
+        const [tatCheck] = await analyticsDb.execute(`
+          SELECT COUNT(*) as count 
+          FROM tat_config 
+          WHERE brand_name = ? AND country_code = ?
+        `, [brand_name, country_code]);
+        
+        const hasConfig = (tatCheck as { count: number }[])[0].count > 0;
+        
+        if (!hasConfig) {
+          tatConfigIssues.push({
+            brand_name,
+            country_code,
+            issue: 'Missing TAT configuration - will use fallback defaults'
+          });
+        }
+      }
+      
+      // 2. Check for orphaned summary data
+      const orphanedData = await this.cleanupOrphanedSummaryData();
+      
+      // 3. Check for expected order tables that might be missing
+      const missingTables = [];
+      
+      // This would typically check against a master list or discovery service
+      // For now, we'll check if we have summary data without corresponding tables
+      for (const record of orphanedData.orphaned_records) {
+        missingTables.push({
+          expected_table: record.missing_table,
+          source_pattern: `${record.brand_code}_${record.country_code}_orders`,
+          issue: `Order table missing but summary data exists`
+        });
+      }
+      
+      const totalIssues = tatConfigIssues.length + orphanedData.total_orphaned + missingTables.length;
+      
+      console.log(`Data integrity validation completed. Found ${totalIssues} total issues.`);
+      
+      return {
+        tat_config_issues: tatConfigIssues,
+        orphaned_summary_data: orphanedData,
+        missing_order_tables: missingTables,
+        summary: {
+          total_issues: totalIssues,
+          tat_issues: tatConfigIssues.length,
+          orphaned_records: orphanedData.total_orphaned,
+          missing_tables: missingTables.length
+        }
+      };
+      
+    } catch (error) {
+      console.error('Data integrity validation failed:', error);
+      throw new Error(`Data integrity validation failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 } 
