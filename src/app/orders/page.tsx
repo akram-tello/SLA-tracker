@@ -163,8 +163,11 @@ const TableHeader = ({ children }: { children: React.ReactNode }) => (
   </thead>
 );
 
-const TableHeaderCell = ({ children, className = "" }: { children: React.ReactNode; className?: string }) => (
-  <th className={`px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider ${className}`}>
+const TableHeaderCell = ({ children, className = "", onClick }: { children: React.ReactNode; className?: string; onClick?: () => void }) => (
+  <th 
+    className={`px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider ${className}`}
+    onClick={onClick}
+  >
     {children}
   </th>
 );
@@ -215,6 +218,11 @@ interface Order {
   config_delivered_tat?: string | null
 }
 
+// Sort configuration interface
+interface SortConfig {
+  key: 'order_date' | 'timeline_priority';
+  direction: 'asc' | 'desc';
+}
 
 
 interface OrdersResponse {
@@ -247,6 +255,12 @@ function OrdersContent() {
   // Order details modal state
   const [selectedOrderNo, setSelectedOrderNo] = useState<string | null>(null)
   const [isModalOpen, setIsModalOpen] = useState(false)
+  
+  // Sorting state
+  const [sortConfig, setSortConfig] = useState<SortConfig>({
+    key: 'order_date',
+    direction: 'desc'
+  })
   
   // Enhanced Filter State
   const [filters, setFilters] = useState<FilterState>(() => ({
@@ -632,6 +646,83 @@ function OrdersContent() {
 
   const activeFiltersCount = Object.values(filters).filter(value => value !== '').length
 
+  // Sorting functions
+  const handleSort = (key: SortConfig['key']) => {
+    setSortConfig(prev => ({
+      key,
+      direction: prev.key === key && prev.direction === 'asc' ? 'desc' : 'asc'
+    }))
+  }
+
+  const sortOrders = (ordersToSort: Order[]) => {
+    return [...ordersToSort].sort((a, b) => {
+      if (sortConfig.key === 'order_date') {
+        const aValue = new Date(a.order_date).getTime()
+        const bValue = new Date(b.order_date).getTime()
+        
+        if (aValue < bValue) {
+          return sortConfig.direction === 'asc' ? -1 : 1
+        }
+        if (aValue > bValue) {
+          return sortConfig.direction === 'asc' ? 1 : -1
+        }
+        return 0
+      }
+      
+      // Timeline priority sorting
+      if (sortConfig.key === 'timeline_priority') {
+        const aAnalysis = calculateStageAnalysis(a)
+        const bAnalysis = calculateStageAnalysis(b)
+        
+        // Get the highest priority stage for each order
+        const getPriorityScore = (analysis: ReturnType<typeof calculateStageAnalysis>) => {
+          let maxScore = 0
+          analysis.forEach(stage => {
+            if (stage.status === 'Breached') {
+              // Breached orders get highest priority (score 100 + exceeded minutes)
+              const exceededMinutes = stage.exceeded_by ? 
+                parseInt(stage.exceeded_by.replace(/[^0-9]/g, '')) : 0
+              maxScore = Math.max(maxScore, 100 + exceededMinutes)
+            } else if (stage.status === 'At Risk') {
+              // At risk orders get medium priority (score 50)
+              maxScore = Math.max(maxScore, 50)
+            } else if (stage.actual_time && stage.actual_time.includes('pending')) {
+              // Pending orders get low priority (score 25 + pending hours)
+              const pendingHours = stage.actual_time.includes('d') ? 
+                parseInt(stage.actual_time.split('d')[0]) * 24 : 
+                stage.actual_time.includes('h') ? 
+                parseInt(stage.actual_time.split('h')[0]) : 0
+              maxScore = Math.max(maxScore, 25 + pendingHours)
+            }
+          })
+          return maxScore
+        }
+        
+        const aScore = getPriorityScore(aAnalysis)
+        const bScore = getPriorityScore(bAnalysis)
+        
+        if (aScore < bScore) {
+          return sortConfig.direction === 'asc' ? -1 : 1
+        }
+        if (aScore > bScore) {
+          return sortConfig.direction === 'asc' ? 1 : -1
+        }
+        return 0
+      }
+      
+      return 0
+    })
+  }
+
+  const getSortIcon = (key: SortConfig['key']) => {
+    if (sortConfig.key !== key) {
+      return <span className="text-gray-400 text-xs">↕</span>
+    }
+    return sortConfig.direction === 'asc' ? 
+      <span className="text-blue-600 text-xs font-bold">↑</span> : 
+      <span className="text-blue-600 text-xs font-bold">↓</span>
+  }
+
   return (
     <div className="min-h-screen bg-gray-50 p-6">
       <div className="max-w-7xl mx-auto space-y-6">
@@ -769,6 +860,12 @@ function OrdersContent() {
               {activeFiltersCount > 0 && (
                 <Badge variant="info">{activeFiltersCount} filter{activeFiltersCount > 1 ? 's' : ''} applied</Badge>
               )}
+              <span className="flex items-center gap-1">
+                Sorted by: 
+                <span className="font-medium text-blue-600">
+                  {sortConfig.key === 'order_date' ? 'Order Date' : 'Timeline Priority'} ({sortConfig.direction.toUpperCase()})
+                </span>
+              </span>
             </div>
             <div className="flex items-center gap-2">
               <span>Page {pagination.page} of {pagination.total_pages}</span>
@@ -781,12 +878,28 @@ function OrdersContent() {
           <Table>
             <TableHeader>
               <tr>
-                <TableHeaderCell>Order Details</TableHeaderCell>
+                <TableHeaderCell 
+                  className="cursor-pointer hover:bg-gray-100 select-none"
+                  onClick={() => handleSort('order_date')}
+                >
+                  <div className="flex items-center gap-2">
+                    Order Details
+                    {getSortIcon('order_date')}
+                  </div>
+                </TableHeaderCell>
                 <TableHeaderCell>Current Milestone</TableHeaderCell>
                 <TableHeaderCell>Next Milestone</TableHeaderCell>
                 <TableHeaderCell>SLA Status</TableHeaderCell>
                 <TableHeaderCell>Fulfilment Status</TableHeaderCell>
-                <TableHeaderCell>Timeline</TableHeaderCell>
+                <TableHeaderCell 
+                  className="cursor-pointer hover:bg-gray-100 select-none"
+                  onClick={() => handleSort('timeline_priority')}
+                >
+                  <div className="flex items-center gap-2">
+                    Timeline
+                    {getSortIcon('timeline_priority')}
+                  </div>
+                </TableHeaderCell>
                 <TableHeaderCell>Brand & Country</TableHeaderCell>
               </tr>
             </TableHeader>
@@ -811,7 +924,7 @@ function OrdersContent() {
                   </TableCell>
                 </TableRow>
               ) : (
-                orders.map((order) => {
+                sortOrders(orders).map((order) => {
                   // Helper function to get next milestone
                   const getNextMilestone = (currentStage: string) => {
                     switch(currentStage) {
