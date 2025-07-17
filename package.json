@@ -12,8 +12,9 @@
     "db:migrate": "mysql -u $ANALYTICS_DB_USER -p$ANALYTICS_DB_PASSWORD < migrations/001_create_schema.sql",
     "test": "echo \"No tests specified\" && exit 0"
   },
-  "dependencies": {
-    "bullmq": "^5.36.3",
+      "dependencies": {
+      "apexcharts": "^4.0.0",
+      "bullmq": "^5.36.3",
     "clsx": "^2.1.1",
     "compression": "^1.7.5",
     "cors": "^2.8.5",
@@ -27,6 +28,7 @@
     "next": "15.1.6",
     "next-themes": "^0.4.6",
     "react": "^18.3.1",
+    "react-apexcharts": "^1.4.1",
     "react-dom": "^18.3.1",
     "recharts": "^3.1.0",
     "redis": "^4.7.0",
