@@ -17,8 +17,10 @@ export const orderFiltersSchema = z.object({
   country: z.string().optional(),
   sla_status: z.string().optional(),
   stage: z.string().optional(),
+  pending_status: z.enum(['pending', 'normal']).optional(),
   from_date: z.string().optional(),
   to_date: z.string().optional(),
+  confirmation_status: z.string().optional(),
 });
 
 export const tatConfigSchema = z.object({

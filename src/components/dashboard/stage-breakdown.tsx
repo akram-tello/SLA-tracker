@@ -113,7 +113,7 @@ export function StageBreakdown() {
                     <ArrowUpRight className="h-4 w-4 text-gray-400 group-hover:text-blue-500 transition-colors" />
                   </div>
                   
-                  <div className="grid grid-cols-3 gap-4 text-sm">
+                  <div className="grid grid-cols-2 gap-4 text-sm mb-3">
                     <div>
                       <span className="text-gray-500">On Time:</span>
                       <span className="ml-1 font-medium text-green-600">{stage.on_time.toLocaleString()}</span>
@@ -126,7 +126,25 @@ export function StageBreakdown() {
                       <span className="text-gray-500">Breached:</span>
                       <span className="ml-1 font-medium text-red-600">{stage.breached.toLocaleString()}</span>
                     </div>
+                    <div>
+                      <span className="text-gray-500">Pending:</span>
+                      <span className="ml-1 font-medium text-orange-500">{stage.pending?.toLocaleString() || 0}</span>
+                    </div>
                   </div>
+                  
+                  {/* Pending breakdown if there are pending orders */}
+                  {(stage.pending || 0) > 0 && (
+                    <div className="grid grid-cols-2 gap-4 text-xs bg-orange-50 p-2 rounded border-l-2 border-orange-200">
+                      <div>
+                        <span className="text-orange-600">At Risk + Pending:</span>
+                        <span className="ml-1 font-medium text-orange-700">{stage.at_risk_pending?.toLocaleString() || 0}</span>
+                      </div>
+                      <div>
+                        <span className="text-red-600">Breached + Pending:</span>
+                        <span className="ml-1 font-medium text-red-700">{stage.breached_pending?.toLocaleString() || 0}</span>
+                      </div>
+                    </div>
+                  )}
                 </div>
                 
                 <div className="text-right">
@@ -144,7 +162,7 @@ export function StageBreakdown() {
         
         {/* Summary totals */}
         <div className="mt-6 pt-4 border-t">
-          <div className="grid grid-cols-4 gap-4 text-center">
+          <div className="grid grid-cols-5 gap-4 text-center">
             <div>
               <div className="text-lg font-semibold text-gray-900">
                 {stageData.reduce((sum, stage) => sum + stage.total, 0).toLocaleString()}
@@ -169,7 +187,31 @@ export function StageBreakdown() {
               </div>
               <div className="text-sm text-gray-500">Breached</div>
             </div>
+            <div>
+              <div className="text-lg font-semibold text-orange-500">
+                {stageData.reduce((sum, stage) => sum + (stage.pending || 0), 0).toLocaleString()}
+              </div>
+              <div className="text-sm text-gray-500">Pending</div>
+            </div>
           </div>
+
+          {/* Pending breakdown summary if there are pending orders */}
+          {stageData.some(stage => (stage.pending || 0) > 0) && (
+            <div className="grid grid-cols-2 gap-4 text-center mt-4 pt-4 border-t border-orange-200 bg-orange-50 p-3 rounded">
+              <div>
+                <div className="text-md font-semibold text-orange-600">
+                  {stageData.reduce((sum, stage) => sum + (stage.at_risk_pending || 0), 0).toLocaleString()}
+                </div>
+                <div className="text-xs text-orange-600">At Risk + Pending</div>
+              </div>
+              <div>
+                <div className="text-md font-semibold text-red-600">
+                  {stageData.reduce((sum, stage) => sum + (stage.breached_pending || 0), 0).toLocaleString()}
+                </div>
+                <div className="text-xs text-red-600">Breached + Pending</div>
+              </div>
+            </div>
+          )}
         </div>
       </CardContent>
     </Card>

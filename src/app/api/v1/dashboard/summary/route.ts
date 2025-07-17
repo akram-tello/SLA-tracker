@@ -35,21 +35,31 @@ export async function GET(request: NextRequest) {
 
     const whereClause = whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : '';
 
-    // ========== UPDATED: KPI Calculations (No Triple Counting) ==========
-    // Sum totals across all stages but ensure orders are counted only once per day
+    // ========== ENHANCED: KPI Calculations with Pending Metrics ==========
+    // Sum totals across all stages including new pending metrics
     const kpiQuery = `
       SELECT 
         SUM(orders_total) as total_orders,
         SUM(orders_on_time) as on_time_orders,
         SUM(orders_on_risk) as on_risk_orders,
         SUM(orders_breached) as breached_orders,
+        SUM(orders_pending_total) as pending_orders,
+        SUM(orders_at_risk_pending) as at_risk_pending_orders,
+        SUM(orders_breached_pending) as breached_pending_orders,
         ROUND(AVG(avg_delay_sec), 0) as avg_delay_seconds,
+        ROUND(AVG(avg_pending_hours), 1) as avg_pending_hours,
         -- Calculate completion rate based on actual unique orders
         ROUND(
           (SUM(orders_on_time) * 100.0) / 
           NULLIF(SUM(orders_total), 0), 
           1
-        ) as completion_rate
+        ) as completion_rate,
+        -- Calculate pending rate
+        ROUND(
+          (SUM(orders_pending_total) * 100.0) / 
+          NULLIF(SUM(orders_total), 0), 
+          1
+        ) as pending_rate
       FROM sla_daily_summary 
       ${whereClause}
     `;
@@ -60,8 +70,8 @@ export async function GET(request: NextRequest) {
     const [kpiRows] = await db.execute(kpiQuery, queryParams);
     const kpiData = (kpiRows as Record<string, string | number>[])[0];
 
-    // ========== UPDATED: Stage Breakdown (Current Stage Distribution) ==========
-    // Show distribution of orders across their CURRENT stages
+    // ========== ENHANCED: Stage Breakdown with Pending Metrics ==========
+    // Show distribution of orders across their CURRENT stages including pending status
     const stageQuery = `
       SELECT 
         stage,
@@ -69,11 +79,20 @@ export async function GET(request: NextRequest) {
         SUM(orders_on_time) as on_time,
         SUM(orders_on_risk) as on_risk,
         SUM(orders_breached) as breached,
+        SUM(orders_pending_total) as pending,
+        SUM(orders_at_risk_pending) as at_risk_pending,
+        SUM(orders_breached_pending) as breached_pending,
+        ROUND(AVG(avg_pending_hours), 1) as avg_pending_hours,
         ROUND(
           (SUM(orders_on_time) * 100.0) / 
           NULLIF(SUM(orders_total), 0), 
           1
-        ) as completion_rate
+        ) as completion_rate,
+        ROUND(
+          (SUM(orders_pending_total) * 100.0) / 
+          NULLIF(SUM(orders_total), 0), 
+          1
+        ) as pending_rate
       FROM sla_daily_summary 
       ${whereClause}
       GROUP BY stage
@@ -91,19 +110,26 @@ export async function GET(request: NextRequest) {
     
     const [stageRows] = await db.execute(stageQuery, queryParams);
 
-    // ========== UPDATED: Chart Data (Daily Trend with Accurate Totals) ==========
-    // Aggregate daily totals properly (sum across stages for same day)
+    // ========== ENHANCED: Chart Data with Pending Trends ==========
+    // Aggregate daily totals properly including pending metrics
     const chartQuery = `
       SELECT 
         summary_date as date,
         SUM(orders_total) as total_orders,
         SUM(orders_on_time) as on_time_orders,
         SUM(orders_breached) as breached_orders,
+        SUM(orders_pending_total) as pending_orders,
+        SUM(orders_breached_pending) as breached_pending_orders,
         ROUND(
           (SUM(orders_on_time) * 100.0) / 
           NULLIF(SUM(orders_total), 0), 
           1
-        ) as completion_rate
+        ) as completion_rate,
+        ROUND(
+          (SUM(orders_pending_total) * 100.0) / 
+          NULLIF(SUM(orders_total), 0), 
+          1
+        ) as pending_rate
       FROM sla_daily_summary 
       ${whereClause}
       GROUP BY summary_date
@@ -114,8 +140,8 @@ export async function GET(request: NextRequest) {
     
     const [chartRows] = await db.execute(chartQuery, queryParams);
 
-    // ========== UPDATED: Stage KPI Cards (Individual Stage Performance) ==========
-    // Show performance metrics for each stage individually
+    // ========== ENHANCED: Stage KPI Cards with Pending Metrics ==========
+    // Show performance metrics for each stage individually including pending status
     const stageKpiQuery = `
       SELECT 
         stage,
@@ -123,11 +149,20 @@ export async function GET(request: NextRequest) {
         SUM(orders_on_time) as on_time_orders,
         SUM(orders_on_risk) as on_risk_orders,
         SUM(orders_breached) as breached_orders,
+        SUM(orders_pending_total) as pending_orders,
+        SUM(orders_at_risk_pending) as at_risk_pending_orders,
+        SUM(orders_breached_pending) as breached_pending_orders,
+        ROUND(AVG(avg_pending_hours), 1) as avg_pending_hours,
         ROUND(
           (SUM(orders_on_time) * 100.0) / 
           NULLIF(SUM(orders_total), 0), 
           1
         ) as completion_rate,
+        ROUND(
+          (SUM(orders_pending_total) * 100.0) / 
+          NULLIF(SUM(orders_total), 0), 
+          1
+        ) as pending_rate,
         ROUND(AVG(avg_delay_sec), 0) as avg_delay_seconds
       FROM sla_daily_summary 
       ${whereClause}

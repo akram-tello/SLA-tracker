@@ -520,7 +520,8 @@ export class ETLService {
       
       // Get TAT configuration for this brand/country combination
       const [tatConfigRows] = await analyticsDb.execute(`
-        SELECT processed_tat, shipped_tat, delivered_tat, risk_pct
+        SELECT processed_tat, shipped_tat, delivered_tat, risk_pct,
+               pending_not_processed_time, pending_processed_time, pending_shipped_time
         FROM tat_config 
         WHERE brand_name = ? AND country_code = ?
       `, [brandName, country.toUpperCase()]);
@@ -537,7 +538,10 @@ export class ETLService {
           processed_tat: '2h',      // 2 hours default
           shipped_tat: '2d',        // 2 days default  
           delivered_tat: '7d',      // 7 days default
-          risk_pct: 80              // 80% risk threshold default
+          risk_pct: 80,             // 80% risk threshold default
+          pending_not_processed_time: '6h',  // 6 hours default
+          pending_processed_time: '24h',     // 24 hours default
+          pending_shipped_time: '3d'         // 3 days default
         };
         
         // Log the fallback usage for monitoring
@@ -546,7 +550,8 @@ export class ETLService {
         tatConfig = tatConfigArray[0];
       }
       
-      const { processed_tat, shipped_tat, delivered_tat, risk_pct } = tatConfig;
+      const { processed_tat, shipped_tat, delivered_tat, risk_pct, 
+              pending_not_processed_time, pending_processed_time, pending_shipped_time } = tatConfig;
       
       // Validate TAT values before processing
       try {
@@ -559,6 +564,11 @@ export class ETLService {
         const shippedRiskThreshold = parseTimeStringToMinutes(calculateRiskThreshold(String(shipped_tat), Number(risk_pct)));
         const deliveredRiskThreshold = parseTimeStringToMinutes(calculateRiskThreshold(String(delivered_tat), Number(risk_pct)));
 
+        // Convert pending thresholds to minutes
+        const pendingNotProcessedMinutes = parseTimeStringToMinutes(String(pending_not_processed_time));
+        const pendingProcessedMinutes = parseTimeStringToMinutes(String(pending_processed_time));
+        const pendingShippedMinutes = parseTimeStringToMinutes(String(pending_shipped_time));
+
         // Validate converted values
         if (processedTATMinutes <= 0 || shippedTATMinutes <= 0 || deliveredTATMinutes <= 0) {
           throw new Error(`Invalid TAT values: processed=${processed_tat}, shipped=${shipped_tat}, delivered=${delivered_tat}`);
@@ -568,7 +578,12 @@ export class ETLService {
           processed: `${processed_tat} (${processedTATMinutes}min)`,
           shipped: `${shipped_tat} (${shippedTATMinutes}min)`,
           delivered: `${delivered_tat} (${deliveredTATMinutes}min)`,
-          risk_pct: `${risk_pct}%`
+          risk_pct: `${risk_pct}%`,
+          pending_thresholds: {
+            not_processed: `${pending_not_processed_time} (${pendingNotProcessedMinutes}min)`,
+            processed: `${pending_processed_time} (${pendingProcessedMinutes}min)`,
+            shipped: `${pending_shipped_time} (${pendingShippedMinutes}min)`
+          }
         });
 
         // Validate target table exists before processing
@@ -599,13 +614,15 @@ export class ETLService {
           WHERE brand_name = ? AND country_code = ?
         `, [brandName, country.toUpperCase()]);
 
-        // Enhanced summary query with better stage handling
+        // summary query with better stage handling
         const summaryQuery = `
           INSERT INTO sla_daily_summary (
             summary_date, brand_name, brand_code, country_code, stage,
-            orders_total, orders_on_time, orders_on_risk, orders_breached, avg_delay_sec
+            orders_total, orders_on_time, orders_on_risk, orders_breached, 
+            orders_pending_total, orders_at_risk_pending, orders_breached_pending, 
+            avg_pending_hours, avg_delay_sec
           )
-          SELECT 
+                    SELECT 
             DATE(placed_time) as summary_date,
             brand_name,
             '${brand}' as brand_code,
@@ -690,7 +707,7 @@ export class ETLService {
                 
               WHEN processed_time IS NOT NULL AND shipped_time IS NULL THEN
                 -- For processed orders, check if actual time exceeds SLA threshold
-                CASE WHEN TIMESTAMPDIFF(MINUTE, placed_time, processed_time) > ${processedTATMinutes} 
+                CASE WHEN TIMESTAMPDIFF(MINUTE, placed_time, processed_time) > ${processedTATMinutes}
                      THEN 1 ELSE 0 END
                 
               WHEN confirmation_status = 'NOTCONFIRMED' THEN
@@ -699,6 +716,51 @@ export class ETLService {
                 
               ELSE 0
             END) as orders_breached,
+            
+            -- Calculate pending orders (stuck in current stage beyond threshold)
+            SUM(CASE 
+              WHEN confirmation_status = 'NOTCONFIRMED' AND TIMESTAMPDIFF(MINUTE, placed_time, NOW()) > ${pendingNotProcessedMinutes} THEN 1
+              WHEN processed_time IS NOT NULL AND shipped_time IS NULL AND TIMESTAMPDIFF(MINUTE, processed_time, NOW()) > ${pendingProcessedMinutes} THEN 1
+              WHEN shipped_time IS NOT NULL AND delivered_time IS NULL AND TIMESTAMPDIFF(MINUTE, shipped_time, NOW()) > ${pendingShippedMinutes} THEN 1
+              ELSE 0
+            END) as orders_pending_total,
+            
+            -- Calculate at-risk AND pending orders
+            SUM(CASE 
+              WHEN confirmation_status = 'NOTCONFIRMED' AND TIMESTAMPDIFF(MINUTE, placed_time, NOW()) > ${pendingNotProcessedMinutes} THEN 0 -- Not processed orders can't be at risk yet
+              WHEN processed_time IS NOT NULL AND shipped_time IS NULL 
+                   AND TIMESTAMPDIFF(MINUTE, processed_time, NOW()) > ${pendingProcessedMinutes}
+                   AND TIMESTAMPDIFF(MINUTE, placed_time, processed_time) > ${processedRiskThreshold}
+                   AND TIMESTAMPDIFF(MINUTE, placed_time, processed_time) <= ${processedTATMinutes} THEN 1
+              WHEN shipped_time IS NOT NULL AND delivered_time IS NULL 
+                   AND TIMESTAMPDIFF(MINUTE, shipped_time, NOW()) > ${pendingShippedMinutes}
+                   AND TIMESTAMPDIFF(MINUTE, placed_time, shipped_time) > ${shippedRiskThreshold}
+                   AND TIMESTAMPDIFF(MINUTE, placed_time, shipped_time) <= ${shippedTATMinutes} THEN 1
+              ELSE 0
+            END) as orders_at_risk_pending,
+            
+            -- Calculate breached AND pending orders  
+            SUM(CASE 
+              WHEN confirmation_status = 'NOTCONFIRMED' AND TIMESTAMPDIFF(MINUTE, placed_time, NOW()) > ${pendingNotProcessedMinutes} THEN 0 -- Not processed orders can't be breached yet
+              WHEN processed_time IS NOT NULL AND shipped_time IS NULL 
+                   AND TIMESTAMPDIFF(MINUTE, processed_time, NOW()) > ${pendingProcessedMinutes}
+                   AND TIMESTAMPDIFF(MINUTE, placed_time, processed_time) > ${processedTATMinutes} THEN 1
+              WHEN shipped_time IS NOT NULL AND delivered_time IS NULL 
+                   AND TIMESTAMPDIFF(MINUTE, shipped_time, NOW()) > ${pendingShippedMinutes}
+                   AND TIMESTAMPDIFF(MINUTE, placed_time, shipped_time) > ${shippedTATMinutes} THEN 1
+              ELSE 0
+            END) as orders_breached_pending,
+            
+            -- Calculate average pending time (in hours) for pending orders only
+            COALESCE(AVG(CASE 
+              WHEN confirmation_status = 'NOTCONFIRMED' AND TIMESTAMPDIFF(MINUTE, placed_time, NOW()) > ${pendingNotProcessedMinutes} 
+                   THEN TIMESTAMPDIFF(MINUTE, placed_time, NOW()) / 60.0
+              WHEN processed_time IS NOT NULL AND shipped_time IS NULL AND TIMESTAMPDIFF(MINUTE, processed_time, NOW()) > ${pendingProcessedMinutes} 
+                   THEN TIMESTAMPDIFF(MINUTE, processed_time, NOW()) / 60.0
+              WHEN shipped_time IS NOT NULL AND delivered_time IS NULL AND TIMESTAMPDIFF(MINUTE, shipped_time, NOW()) > ${pendingShippedMinutes} 
+                   THEN TIMESTAMPDIFF(MINUTE, shipped_time, NOW()) / 60.0
+              ELSE NULL
+            END), 0) as avg_pending_hours,
             
             -- Calculate average delay for breached orders only (in seconds)
             COALESCE(AVG(CASE 
@@ -722,7 +784,7 @@ export class ETLService {
                      
               ELSE NULL
             END), 0) as avg_delay_sec
-          FROM ${targetTable} o
+          FROM ${targetTable}
           WHERE placed_time IS NOT NULL
             AND (
               delivered_time IS NOT NULL OR 

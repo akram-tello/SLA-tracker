@@ -2,35 +2,39 @@
 
 import React, { useState, useEffect, Suspense } from "react"
 import { format } from "date-fns"
-import { Download, ArrowLeft } from "lucide-react"
+import { Download, ArrowLeft, Search, Filter, Package } from "lucide-react"
 import Link from "next/link"
-import { OrderFilters } from "@/lib/types"
+// import { OrderFilters } from "@/lib/types" // Not needed with new filter structure
 import { useSearchParams } from "next/navigation"
 
-
-// Custom Tailwind components
+// Enhanced UI Components
 const Button = ({ 
   children, 
   onClick, 
-  color = "blue", 
+  variant = "primary", 
   size = "md", 
   className = "",
-  disabled = false
+  disabled = false,
+  icon
 }: { 
   children: React.ReactNode; 
   onClick?: () => void; 
-  color?: "blue" | "gray"; 
+  variant?: "primary" | "secondary" | "outline" | "ghost" | "danger";
   size?: "sm" | "md" | "lg";
   className?: string;
   disabled?: boolean;
+  icon?: React.ReactNode;
 }) => {
-  const colorClasses = {
-    blue: "bg-blue-600 hover:bg-blue-700 text-white",
-    gray: "bg-gray-100 hover:bg-gray-200 text-gray-900 dark:bg-gray-700 dark:hover:bg-gray-600 dark:text-white"
+  const variants = {
+    primary: "bg-blue-600 hover:bg-blue-700 text-white border-transparent",
+    secondary: "bg-gray-600 hover:bg-gray-700 text-white border-transparent",
+    outline: "bg-transparent hover:bg-gray-50 text-gray-700 border-gray-300",
+    ghost: "bg-transparent hover:bg-gray-100 text-gray-700 border-transparent",
+    danger: "bg-red-600 hover:bg-red-700 text-white border-transparent"
   };
   
-  const sizeClasses = {
-    sm: "px-3 py-2 text-sm",
+  const sizes = {
+    sm: "px-3 py-1.5 text-sm",
     md: "px-4 py-2 text-sm", 
     lg: "px-6 py-3 text-base"
   };
@@ -39,74 +43,150 @@ const Button = ({
     <button 
       onClick={onClick}
       disabled={disabled}
-      className={`font-medium rounded-lg transition-colors ${disabled ? 'opacity-50 cursor-not-allowed' : ''} ${colorClasses[color]} ${sizeClasses[size]} ${className}`}
+      className={`inline-flex items-center gap-2 font-medium rounded-lg border transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${disabled ? 'opacity-50 cursor-not-allowed' : ''} ${variants[variant]} ${sizes[size]} ${className}`}
     >
+      {icon}
       {children}
     </button>
   );
 };
 
-
-
-const Badge = ({ children, color = "gray" }: { children: React.ReactNode; color?: "success" | "warning" | "failure" | "gray" }) => {
-  const colorClasses = {
-    success: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-300",
-    warning: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-300", 
-    failure: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-300",
-    gray: "bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300"
+const Badge = ({ 
+  children, 
+  variant = "gray",
+  size = "sm" 
+}: { 
+  children: React.ReactNode; 
+  variant?: "success" | "warning" | "danger" | "info" | "gray" | "purple";
+  size?: "sm" | "md";
+}) => {
+  const variants = {
+    success: "bg-green-100 text-green-800 border-green-200",
+    warning: "bg-yellow-100 text-yellow-800 border-yellow-200",
+    danger: "bg-red-100 text-red-800 border-red-200",
+    info: "bg-blue-100 text-blue-800 border-blue-200",
+    purple: "bg-purple-100 text-purple-800 border-purple-200",
+    gray: "bg-gray-100 text-gray-800 border-gray-200"
+  };
+  
+  const sizes = {
+    sm: "text-xs px-2 py-0.5",
+    md: "text-sm px-2.5 py-1"
   };
   
   return (
-    <span className={`text-xs font-medium px-2.5 py-0.5 rounded ${colorClasses[color]}`}>
+    <span className={`inline-flex items-center font-medium rounded-full border ${variants[variant]} ${sizes[size]}`}>
       {children}
     </span>
   );
 };
 
 const Card = ({ children, className = "" }: { children: React.ReactNode; className?: string }) => (
-  <div className={`bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 ${className}`}>
+  <div className={`bg-white rounded-xl shadow-sm border border-gray-200 ${className}`}>
     {children}
   </div>
 );
 
-
-
-const Table = ({ children, hoverable }: { children: React.ReactNode; hoverable?: boolean }) => (
-  <table className={`w-full text-sm text-left text-gray-500 dark:text-gray-400 ${hoverable ? 'hover:bg-gray-50' : ''}`}>
-    {children}
-  </table>
+const Input = ({ 
+  type = "text", 
+  placeholder, 
+  value, 
+  onChange, 
+  icon,
+  className = "" 
+}: {
+  type?: string;
+  placeholder?: string;
+  value: string;
+  onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  icon?: React.ReactNode;
+  className?: string;
+}) => (
+  <div className="relative">
+    {icon && (
+      <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+        <div className="h-4 w-4 text-gray-400">{icon}</div>
+      </div>
+    )}
+    <input
+      type={type}
+      value={value}
+      onChange={onChange}
+      placeholder={placeholder}
+      className={`block w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 ${icon ? 'pl-10' : ''} ${className}`}
+    />
+  </div>
 );
 
-const TableHead = ({ children }: { children: React.ReactNode }) => (
-  <thead className="text-xs text-gray-700 uppercase bg-gray-50 dark:bg-gray-700 dark:text-gray-400">
+const Select = ({ 
+  value, 
+  onChange, 
+  options, 
+  placeholder = "Select...",
+  className = "" 
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  options: { value: string; label: string }[];
+  placeholder?: string;
+  className?: string;
+}) => (
+  <select
+    value={value}
+    onChange={(e) => onChange(e.target.value)}
+    className={`block w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 ${className}`}
+  >
+    <option value="">{placeholder}</option>
+    {options.map((option) => (
+      <option key={option.value} value={option.value}>
+        {option.label}
+      </option>
+    ))}
+  </select>
+);
+
+// Enhanced Table Components
+const Table = ({ children }: { children: React.ReactNode }) => (
+  <div className="overflow-hidden rounded-lg border border-gray-200">
+    <div className="overflow-x-auto">
+      <table className="min-w-full divide-y divide-gray-200">
+        {children}
+      </table>
+    </div>
+  </div>
+);
+
+const TableHeader = ({ children }: { children: React.ReactNode }) => (
+  <thead className="bg-gray-50">
     {children}
   </thead>
 );
 
-const TableHeadCell = ({ children, className = "" }: { children: React.ReactNode; className?: string }) => (
-  <th scope="col" className={`px-6 py-3 ${className}`}>
+const TableHeaderCell = ({ children, className = "" }: { children: React.ReactNode; className?: string }) => (
+  <th className={`px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider ${className}`}>
     {children}
   </th>
 );
 
-const TableBody = ({ children, className = "" }: { children: React.ReactNode; className?: string }) => (
-  <tbody className={className}>
+const TableBody = ({ children }: { children: React.ReactNode }) => (
+  <tbody className="bg-white divide-y divide-gray-200">
     {children}
   </tbody>
 );
 
 const TableRow = ({ children, className = "" }: { children: React.ReactNode; className?: string }) => (
-  <tr className={`hover:bg-gray-50 dark:hover:bg-gray-600 ${className}`}>
+  <tr className={`hover:bg-gray-50 transition-colors ${className}`}>
     {children}
   </tr>
 );
 
 const TableCell = ({ children, className = "", colSpan }: { children: React.ReactNode; className?: string; colSpan?: number }) => (
-  <td className={`px-6 py-4 ${className}`} colSpan={colSpan}>
+  <td className={`px-6 py-4 whitespace-nowrap text-sm ${className}`} colSpan={colSpan}>
     {children}
   </td>
 );
 
+// Enhanced Order Interface
 interface Order {
   order_no: string
   order_status: string
@@ -122,6 +202,8 @@ interface Order {
   country_code: string
   current_stage: string
   sla_status: string
+  pending_status: string
+  pending_hours: number
 }
 
 interface OrdersResponse {
@@ -132,63 +214,101 @@ interface OrdersResponse {
   total_pages: number
 }
 
+// Filter State Interface
+interface FilterState {
+  search: string
+  sla_status: string
+  stage: string
+  pending_status: string
+  brand: string
+  country: string
+  from_date: string
+  to_date: string
+  order_status: string
+}
+
 function OrdersContent() {
   const searchParams = useSearchParams()
   const [orders, setOrders] = useState<Order[]>([])
   const [loading, setLoading] = useState(true)
-  const [searchTerm, setSearchTerm] = useState("")
+  const [showFilters, setShowFilters] = useState(false)
   
-  // Initialize filters from URL params (for drill-down from dashboard)
-  const [filters, setFilters] = useState<OrderFilters>(() => {
-    const initialFilters: OrderFilters = {
-      page: 1,
-      limit: 20,
-    }
-    
-    // Parse URL parameters
-    if (searchParams.get('sla_status')) initialFilters.sla_status = searchParams.get('sla_status') || undefined
-    if (searchParams.get('stage')) initialFilters.stage = searchParams.get('stage') || undefined  
-    if (searchParams.get('brand')) initialFilters.brand = searchParams.get('brand') || undefined
-    if (searchParams.get('country')) initialFilters.country = searchParams.get('country') || undefined
-    if (searchParams.get('from_date')) initialFilters.from_date = searchParams.get('from_date') || undefined
-    if (searchParams.get('to_date')) initialFilters.to_date = searchParams.get('to_date') || undefined
-    
-    return initialFilters
-  })
+  // Enhanced Filter State
+  const [filters, setFilters] = useState<FilterState>(() => ({
+    search: "",
+    sla_status: searchParams.get('sla_status') || '',
+    stage: searchParams.get('stage') || '',
+    pending_status: searchParams.get('pending_status') || '',
+    brand: searchParams.get('brand') || '',
+    country: searchParams.get('country') || '',
+    from_date: searchParams.get('from_date') || '',
+    to_date: searchParams.get('to_date') || '',
+    order_status: searchParams.get('order_status') || ''
+  }))
+  
   const [pagination, setPagination] = useState({
     total: 0,
     page: 1,
     total_pages: 0,
+    limit: 20
   })
 
-  const fetchOrders = async (currentFilters: OrderFilters) => {
+  // Filter Options
+  const slaStatusOptions = [
+    { value: "On Time", label: "On Time" },
+    { value: "At Risk", label: "At Risk" },
+    { value: "Breached", label: "Breached" }
+  ]
+
+  const stageOptions = [
+    { value: "Not Processed", label: "Not Processed" },
+    { value: "Processed", label: "Processed" },
+    { value: "Shipped", label: "Shipped" },
+    { value: "Delivered", label: "Delivered" }
+  ]
+
+  const pendingStatusOptions = [
+    { value: "pending", label: "Pending" },
+    { value: "normal", label: "Normal" }
+  ]
+
+  const orderStatusOptions = [
+    { value: "NEW", label: "New" },
+    { value: "PROCESSING", label: "Processing" },
+    { value: "COMPLETED", label: "Completed" },
+    { value: "CANCELLED", label: "Cancelled" }
+  ]
+
+  const fetchOrders = async (currentFilters: FilterState, page: number = 1) => {
     setLoading(true)
     try {
       const params = new URLSearchParams({
-        page: currentFilters.page.toString(),
-        limit: currentFilters.limit.toString(),
+        page: page.toString(),
+        limit: pagination.limit.toString(),
+        confirmation_status: 'CONFIRMED' // Only show confirmed orders
       })
       
-      if (currentFilters.order_status) params.append('order_status', currentFilters.order_status)
-      if (currentFilters.risk_flag !== undefined) params.append('risk_flag', currentFilters.risk_flag.toString())
-      if (currentFilters.order_no) params.append('order_no', currentFilters.order_no)
-      if (currentFilters.brand) params.append('brand', currentFilters.brand)
-      if (currentFilters.country) params.append('country', currentFilters.country)
+      if (currentFilters.search) params.append('order_no', currentFilters.search)
       if (currentFilters.sla_status) params.append('sla_status', currentFilters.sla_status)
       if (currentFilters.stage) params.append('stage', currentFilters.stage)
+      if (currentFilters.pending_status) params.append('pending_status', currentFilters.pending_status)
+      if (currentFilters.brand) params.append('brand', currentFilters.brand)
+      if (currentFilters.country) params.append('country', currentFilters.country)
       if (currentFilters.from_date) params.append('from_date', currentFilters.from_date)
       if (currentFilters.to_date) params.append('to_date', currentFilters.to_date)
+      if (currentFilters.order_status) params.append('order_status', currentFilters.order_status)
 
       const response = await fetch(`/api/v1/orders?${params}`)
       if (!response.ok) throw new Error('Failed to fetch orders')
       
       const data: OrdersResponse = await response.json()
       setOrders(data.orders)
-      setPagination({
+      setPagination(prev => ({
+        ...prev,
         total: data.total,
         page: data.page,
         total_pages: data.total_pages,
-      })
+      }))
     } catch (error) {
       console.error('Error fetching orders:', error)
       setOrders([])
@@ -198,55 +318,78 @@ function OrdersContent() {
   }
 
   useEffect(() => {
-    fetchOrders(filters)
-  }, [filters])
+    fetchOrders(filters, pagination.page)
+  }, [filters, pagination.page])
 
-  const handleSearch = () => {
-    setFilters(prev => ({
-      ...prev,
-      page: 1,
-      order_no: searchTerm || undefined,
-    }))
+  const handleFilterChange = (key: keyof FilterState, value: string) => {
+    setFilters(prev => ({ ...prev, [key]: value }))
+    setPagination(prev => ({ ...prev, page: 1 })) // Reset to first page
+  }
+
+  const clearFilters = () => {
+    setFilters({
+      search: "", sla_status: "", stage: "", pending_status: "",
+      brand: "", country: "", from_date: "", to_date: "", order_status: ""
+    })
   }
 
   const handlePageChange = (newPage: number) => {
-    setFilters(prev => ({
-      ...prev,
-      page: newPage,
-    }))
+    setPagination(prev => ({ ...prev, page: newPage }))
   }
 
+  // Enhanced Badge Functions
   const getSLABadge = (status: string) => {
     switch (status) {
       case 'On Time':
-        return <Badge color="success">On Time</Badge>
+        return <Badge variant="success">On Time</Badge>
       case 'At Risk':
-        return <Badge color="warning">At Risk</Badge>
+        return <Badge variant="warning">At Risk</Badge>
       case 'Breached':
-        return <Badge color="failure">Breached</Badge>
+        return <Badge variant="danger">Breached</Badge>
       default:
-        return <Badge color="gray">{status}</Badge>
+        return <Badge variant="gray">{status}</Badge>
+    }
+  }
+
+  const getStageBadge = (stage: string) => {
+    const stageConfig = {
+      'Not Processed': { variant: 'gray' as const },
+      'Processed': { variant: 'info' as const },
+      'Shipped': { variant: 'warning' as const },
+      'Delivered': { variant: 'success' as const }
+    }
+    
+    const config = stageConfig[stage as keyof typeof stageConfig] || { variant: 'gray' as const }
+    return <Badge variant={config.variant}>{stage}</Badge>
+  }
+
+  // Get fulfilment status badge with orange styling
+  const getFulfilmentBadge = (order: typeof orders[0]) => {
+    if (order.current_stage === 'Delivered') {
+      return <Badge variant="success">Fulfilled</Badge>;
+    } else {
+      return <Badge variant="warning">Not Fulfilled</Badge>;
     }
   }
 
   const exportToCSV = () => {
     const headers = [
-      'Order No', 'Order Status', 'Shipping Status', 'Order Date',
-      'Processing Time', 'Shipped Time', 'Delivered Time',
-      'Brand', 'Country', 'SLA Status'
+      'Order No', 'Current Stage', 'SLA Status', 'Pending Status', 'Brand', 'Country', 
+      'Order Date', 'Processed Time', 'Shipped Time', 'Delivered Time', 'Pending Hours'
     ]
     
     const csvData = orders.map(order => [
       order.order_no,
-      order.order_status,
-      order.shipping_status,
+      order.current_stage,
+      order.sla_status,
+      order.pending_status,
+      order.brand_name,
+      order.country_code,
       format(new Date(order.order_date), 'yyyy-MM-dd'),
       order.processed_time ? format(new Date(order.processed_time), 'yyyy-MM-dd HH:mm') : '',
       order.shipped_time ? format(new Date(order.shipped_time), 'yyyy-MM-dd HH:mm') : '',
       order.delivered_time ? format(new Date(order.delivered_time), 'yyyy-MM-dd HH:mm') : '',
-      order.brand_name,
-      order.country_code,
-      order.sla_status,
+      order.pending_hours
     ])
 
     const csvContent = [headers, ...csvData]
@@ -257,205 +400,407 @@ function OrdersContent() {
     const url = window.URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `orders-${format(new Date(), 'yyyy-MM-dd')}.csv`
+    a.download = `orders-${format(new Date(), 'yyyy-MM-dd-HHmm')}.csv`
     a.click()
     window.URL.revokeObjectURL(url)
   }
 
+  const activeFiltersCount = Object.values(filters).filter(value => value !== '').length
+
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 p-6">
+    <div className="min-h-screen bg-gray-50 p-6">
       <div className="max-w-7xl mx-auto space-y-6">
         {/* Header */}
-        <div className="flex justify-between items-center">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-center gap-4">
             <Link href="/">
-              <Button color="gray" size="sm">
-                <ArrowLeft className="h-4 w-4 mr-2" />
-                Back to Dashboard
+              <Button variant="ghost" icon={<ArrowLeft className="h-4 w-4" />}>
+                Dashboard
               </Button>
             </Link>
-            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Orders</h1>
+            <div>
+              <h1 className="text-2xl font-bold text-gray-900">Orders Management</h1>
+              <p className="text-sm text-gray-600 mt-1">
+                {!loading && `${pagination.total} orders found`}
+              </p>
+            </div>
           </div>
-          <Button onClick={exportToCSV} color="blue">
-            <Download className="h-4 w-4 mr-2" />
-            Export CSV
-          </Button>
+          <div className="flex gap-3">
+            <Button 
+              variant="outline" 
+              onClick={() => setShowFilters(!showFilters)}
+              icon={<Filter className="h-4 w-4" />}
+            >
+              Filters {activeFiltersCount > 0 && `(${activeFiltersCount})`}
+            </Button>
+            <Button 
+              onClick={exportToCSV} 
+              disabled={orders.length === 0}
+              icon={<Download className="h-4 w-4" />}
+            >
+              Export
+            </Button>
+          </div>
         </div>
 
-        {/* Simple Search */}
-        <Card className="mb-6">
-          <div className="flex gap-4 items-end">
-            <div className="flex-1">
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Search Order Number
-              </label>
-              <input
-                type="text"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder="Enter order number..."
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-              />
+                 {/* Quick Search & Filters */}
+         <Card className="p-6">
+           <div className="space-y-4">
+             {/* Search */}
+             <div>
+               <label className="block text-sm font-medium text-gray-700 mb-2">Search Orders</label>
+               <Input
+                 placeholder="Search by order number..."
+                 value={filters.search}
+                 onChange={(e) => handleFilterChange('search', e.target.value)}
+                 icon={<Search />}
+               />
+             </div>
+             
+             {/* Quick Filters */}
+             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+               <div>
+                 <label className="block text-sm font-medium text-gray-700 mb-2">SLA Status</label>
+                 <Select
+                   value={filters.sla_status}
+                   onChange={(value) => handleFilterChange('sla_status', value)}
+                   options={slaStatusOptions}
+                   placeholder="All SLA Status"
+                 />
+               </div>
+               <div>
+                 <label className="block text-sm font-medium text-gray-700 mb-2">Current Milestone</label>
+                 <Select
+                   value={filters.stage}
+                   onChange={(value) => handleFilterChange('stage', value)}
+                   options={stageOptions}
+                   placeholder="All Stages"
+                 />
+               </div>
+               <div>
+                 <label className="block text-sm font-medium text-gray-700 mb-2">Fulfilment Status</label>
+                 <Select
+                   value={filters.pending_status}
+                   onChange={(value) => handleFilterChange('pending_status', value)}
+                   options={pendingStatusOptions}
+                   placeholder="All Fulfilment Status"
+                 />
+               </div>
+             </div>
+           </div>
+         </Card>
+
+        {/* Advanced Filters */}
+        {showFilters && (
+          <Card className="p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-medium text-gray-900">Advanced Filters</h3>
+              <Button variant="ghost" size="sm" onClick={clearFilters}>
+                Clear All
+              </Button>
             </div>
-            <Button onClick={handleSearch} disabled={loading}>
-              Search
-            </Button>
-            <Button
-              color="gray"
-              onClick={() => {
-                setSearchTerm('')
-                setFilters({ page: 1, limit: 20 })
-              }}
-              disabled={loading}
-            >
-              Clear
-            </Button>
-          </div>
-        </Card>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Brand</label>
+                <Input
+                  placeholder="e.g., Victoria's Secret"
+                  value={filters.brand}
+                  onChange={(e) => handleFilterChange('brand', e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Country</label>
+                <Input
+                  placeholder="e.g., TH, MY, SG"
+                  value={filters.country}
+                  onChange={(e) => handleFilterChange('country', e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">From Date</label>
+                                 <Input
+                   type="date"
+                   value={filters.from_date}
+                   onChange={(e) => handleFilterChange('from_date', e.target.value)}
+                 />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">To Date</label>
+                                 <Input
+                   type="date"
+                   value={filters.to_date}
+                   onChange={(e) => handleFilterChange('to_date', e.target.value)}
+                 />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Order Status</label>
+                <Select
+                  value={filters.order_status}
+                  onChange={(value) => handleFilterChange('order_status', value)}
+                  options={orderStatusOptions}
+                  placeholder="Order Status"
+                />
+              </div>
+            </div>
+          </Card>
+        )}
 
         {/* Results Summary */}
         {!loading && (
-          <div className="text-sm text-gray-600 dark:text-gray-400">
-            Showing {orders.length} of {pagination.total} orders
-            {filters.sla_status && ` (filtered by SLA: ${filters.sla_status})`}
-            {filters.stage && ` (filtered by stage: ${filters.stage})`}
+          <div className="flex items-center justify-between text-sm text-gray-600">
+            <div className="flex items-center gap-4">
+              <span>Showing {orders.length} of {pagination.total} orders</span>
+              {activeFiltersCount > 0 && (
+                <Badge variant="info">{activeFiltersCount} filter{activeFiltersCount > 1 ? 's' : ''} applied</Badge>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <span>Page {pagination.page} of {pagination.total_pages}</span>
+            </div>
           </div>
         )}
 
-        {/* Orders Table */}
-        <Card className="border-0 shadow-sm">
-          <div className="overflow-x-auto">
-            <Table hoverable>
-              <TableHead>
-                <TableRow>
-                  <TableHeadCell>Order No</TableHeadCell>
-                  <TableHeadCell>Current Stage</TableHeadCell>
-                  <TableHeadCell>Brand</TableHeadCell>
-                  <TableHeadCell>Country</TableHeadCell>
-                  <TableHeadCell>Order Date</TableHeadCell>
-                  <TableHeadCell>Processing</TableHeadCell>
-                  <TableHeadCell>Shipped</TableHeadCell>
-                  <TableHeadCell>Delivered</TableHeadCell>
-                  <TableHeadCell>SLA Status</TableHeadCell>
-                </TableRow>
-              </TableHead>
-              <TableBody className="divide-y">
-                {loading ? (
-                  // Loading skeleton
-                  Array.from({ length: 5 }).map((_, i) => (
-                    <TableRow key={i}>
-                      <TableCell><div className="h-4 bg-gray-200 dark:bg-gray-700 rounded animate-pulse"></div></TableCell>
-                      <TableCell><div className="h-4 bg-gray-200 dark:bg-gray-700 rounded animate-pulse"></div></TableCell>
-                      <TableCell><div className="h-4 bg-gray-200 dark:bg-gray-700 rounded animate-pulse"></div></TableCell>
-                      <TableCell><div className="h-4 bg-gray-200 dark:bg-gray-700 rounded animate-pulse"></div></TableCell>
-                      <TableCell><div className="h-4 bg-gray-200 dark:bg-gray-700 rounded animate-pulse"></div></TableCell>
-                      <TableCell><div className="h-4 bg-gray-200 dark:bg-gray-700 rounded animate-pulse"></div></TableCell>
-                      <TableCell><div className="h-4 bg-gray-200 dark:bg-gray-700 rounded animate-pulse"></div></TableCell>
-                      <TableCell><div className="h-4 bg-gray-200 dark:bg-gray-700 rounded animate-pulse"></div></TableCell>
-                      <TableCell><div className="h-4 bg-gray-200 dark:bg-gray-700 rounded animate-pulse"></div></TableCell>
-                    </TableRow>
-                  ))
-                ) : orders.length === 0 ? (
-                  <TableRow>
-                    <TableCell colSpan={9} className="text-center py-8 text-gray-500 dark:text-gray-400">
-                      No orders found
-                    </TableCell>
+        {/* Enhanced Orders Table */}
+        <Card className="overflow-hidden">
+          <Table>
+            <TableHeader>
+              <tr>
+                <TableHeaderCell>Order Details</TableHeaderCell>
+                <TableHeaderCell>Current Milestone</TableHeaderCell>
+                <TableHeaderCell>Next Milestone</TableHeaderCell>
+                <TableHeaderCell>SLA Status</TableHeaderCell>
+                <TableHeaderCell>Fulfilment Status</TableHeaderCell>
+                <TableHeaderCell>Timeline</TableHeaderCell>
+                <TableHeaderCell>Brand & Country</TableHeaderCell>
+              </tr>
+            </TableHeader>
+            <TableBody>
+              {loading ? (
+                // Enhanced Loading Skeleton
+                Array.from({ length: 5 }).map((_, i) => (
+                  <TableRow key={i}>
+                    {Array.from({ length: 7 }).map((_, j) => (
+                      <TableCell key={j}>
+                        <div className="h-8 bg-gray-200 rounded animate-pulse"></div>
+                      </TableCell>
+                    ))}
                   </TableRow>
-                ) : (
-                  orders.map((order) => (
-                    <TableRow key={order.order_no} className="bg-white dark:border-gray-700 dark:bg-gray-800">
-                      <TableCell className="font-medium text-gray-900 dark:text-white">
-                        {order.order_no}
-                      </TableCell>
+                ))
+              ) : orders.length === 0 ? (
+                <TableRow>
+                  <TableCell className="text-center py-12 text-gray-500" colSpan={7}>
+                    <Package className="h-12 w-12 mx-auto mb-4 text-gray-300" />
+                    <div className="text-lg font-medium mb-2">No orders found</div>
+                    <div className="text-sm">Try adjusting your search criteria or filters</div>
+                  </TableCell>
+                </TableRow>
+              ) : (
+                orders.map((order) => {
+                  // Helper function to get next milestone
+                  const getNextMilestone = (currentStage: string) => {
+                    switch(currentStage) {
+                      case 'Not Processed':
+                        return 'Order not confirmed';
+                      case 'Processed':
+                        return 'Shipped';
+                      case 'Shipped':
+                        return 'Delivered';
+                      case 'Delivered':
+                        return 'N/A';
+                      default:
+                        return 'N/A';
+                    }
+                  };
+
+                  // Helper function to get timeline with pending delay information
+                  const getTimelineDisplay = (order: typeof orders[0]): string[] => {
+                    const timeline: string[] = [];
+                    const now = new Date();
+                    
+                    // Helper to calculate time difference and format
+                    const formatTimeDiff = (start: Date, end: Date) => {
+                      const diffMs = end.getTime() - start.getTime();
+                      const diffMins = Math.floor(diffMs / (1000 * 60));
+                      
+                      if (diffMins < 60) {
+                        return `${diffMins}m`;
+                      } else if (diffMins < 1440) {
+                        const hours = Math.floor(diffMins / 60);
+                        const mins = diffMins % 60;
+                        return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`;
+                      } else {
+                        const days = Math.floor(diffMins / 1440);
+                        const hours = Math.floor((diffMins % 1440) / 60);
+                        return hours > 0 ? `${days}d ${hours}h` : `${days}d`;
+                      }
+                    };
+
+                    // Add processed milestone if exists
+                    if (order.processed_time) {
+                      const processedDate = new Date(order.processed_time);
+                      
+                      // Check if currently pending in processed stage
+                      let pendingInfo = '';
+                      if (order.current_stage === 'Processed' && !order.shipped_time) {
+                        const pendingTime = formatTimeDiff(processedDate, now);
+                        pendingInfo = ` (${pendingTime} pending)`;
+                      }
+                      
+                      timeline.push(`Processed: ${format(processedDate, 'MMM dd, yyyy HH:mm')}${pendingInfo}`);
+                    }
+                    
+                    // Add shipped milestone if exists
+                    if (order.shipped_time) {
+                      const shippedDate = new Date(order.shipped_time);
+                      
+                      // Check if currently pending in shipped stage
+                      let pendingInfo = '';
+                      if (order.current_stage === 'Shipped' && !order.delivered_time) {
+                        const pendingTime = formatTimeDiff(shippedDate, now);
+                        pendingInfo = ` (${pendingTime} pending)`;
+                      }
+                      
+                      timeline.push(`Shipped: ${format(shippedDate, 'MMM dd, yyyy HH:mm')}${pendingInfo}`);
+                    }
+                    
+                    // Add delivered milestone if exists
+                    if (order.delivered_time) {
+                      const deliveredDate = new Date(order.delivered_time);
+                      timeline.push(`Delivered: ${format(deliveredDate, 'MMM dd, yyyy HH:mm')}`);
+                    }
+                    
+                    return timeline.length > 0 ? timeline : ['N/A'];
+                  };
+
+                  return (
+                    <TableRow key={order.order_no}>
+                      {/* Order Details */}
                       <TableCell>
-                        <Badge color={
-                          order.current_stage === 'Delivered' ? 'success' :
-                          order.current_stage === 'Shipped' ? 'warning' :
-                          order.current_stage === 'Processed' ? 'gray' : 'gray'
-                        }>
-                          {order.current_stage}
-                        </Badge>
+                        <div>
+                          <div className="font-semibold text-gray-900">{order.order_no}</div>
+                          <div className="text-xs text-gray-500 mt-1">
+                            {format(new Date(order.order_date), 'MMM dd, yyyy, HH:mm a')}
+                          </div>
+                        </div>
                       </TableCell>
-                      <TableCell>{order.brand_name}</TableCell>
-                      <TableCell>{order.country_code}</TableCell>
-                      <TableCell>{format(new Date(order.order_date), 'MMM dd, yyyy')}</TableCell>
+
+                      {/* Current Milestone */}
                       <TableCell>
-                        {order.processed_time ? (
-                          <span className="text-sm text-gray-600 dark:text-gray-400">
-                            {format(new Date(order.processed_time), 'MMM dd, HH:mm')}
-                          </span>
+                        {getStageBadge(order.current_stage)}
+                      </TableCell>
+
+                      {/* Next Milestone */}
+                      <TableCell>
+                        <div className="text-sm text-gray-600">
+                          {getNextMilestone(order.current_stage)}
+                        </div>
+                      </TableCell>
+
+                      {/* SLA Status */}
+                      <TableCell>
+                        {order.current_stage === 'Not Processed' ? (
+                          <span className="text-sm text-gray-500">N/A</span>
                         ) : (
-                          <span className="text-sm text-gray-400">-</span>
+                          getSLABadge(order.sla_status)
                         )}
                       </TableCell>
+
+                      {/* Fulfilment Status */}
                       <TableCell>
-                        {order.shipped_time ? (
-                          <span className="text-sm text-gray-600 dark:text-gray-400">
-                            {format(new Date(order.shipped_time), 'MMM dd, HH:mm')}
-                          </span>
-                        ) : (
-                          <span className="text-sm text-gray-400">-</span>
-                        )}
+                        {getFulfilmentBadge(order)}
                       </TableCell>
+
+                      {/* Timeline */}
                       <TableCell>
-                        {order.delivered_time ? (
-                          <span className="text-sm text-gray-600 dark:text-gray-400">
-                            {format(new Date(order.delivered_time), 'MMM dd, HH:mm')}
-                          </span>
-                        ) : (
-                          <span className="text-sm text-gray-400">-</span>
-                        )}
+                        <div className="space-y-1 text-xs">
+                          {getTimelineDisplay(order).map((line, index) => {
+                            // Check if line contains pending information
+                            const hasPending = line.includes('pending');
+                            if (hasPending) {
+                              // Split the line to highlight pending part in orange
+                              const parts = line.split('(');
+                              if (parts.length === 2) {
+                                return (
+                                  <div key={index} className="text-gray-600">
+                                    {parts[0]}
+                                    <span className="text-orange-600 font-medium">({parts[1]}</span>
+                                  </div>
+                                );
+                              }
+                            }
+                            return (
+                              <div key={index} className="text-gray-600">
+                                {line}
+                              </div>
+                            );
+                          })}
+                        </div>
                       </TableCell>
+
+                      {/* Brand & Country */}
                       <TableCell>
-                        {getSLABadge(order.sla_status)}
+                        <div>
+                          <div className="font-medium text-gray-900">{order.brand_name?.replace("'s", "'s") || 'N/A'}</div>
+                          <Badge variant="gray" size="sm">{order.country_code}</Badge>
+                        </div>
                       </TableCell>
                     </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </div>
+                  );
+                })
+              )}
+            </TableBody>
+          </Table>
+        </Card>
 
-          {/* Pagination */}
-          {!loading && pagination.total_pages > 1 && (
-            <div className="flex justify-between items-center px-6 py-4 border-t border-gray-200 dark:border-gray-700">
-              <div className="text-sm text-gray-600 dark:text-gray-400">
-                Page {pagination.page} of {pagination.total_pages}
+        {/* Enhanced Pagination */}
+        {!loading && pagination.total_pages > 1 && (
+          <Card className="p-4">
+            <div className="flex items-center justify-between">
+              <div className="text-sm text-gray-600">
+                Showing {(pagination.page - 1) * pagination.limit + 1} to {Math.min(pagination.page * pagination.limit, pagination.total)} of {pagination.total} orders
               </div>
-              <div className="flex gap-2">
+              <div className="flex items-center gap-2">
                 <Button
+                  variant="outline"
+                  size="sm"
                   onClick={() => handlePageChange(pagination.page - 1)}
                   disabled={pagination.page === 1}
-                  color="gray"
-                  size="sm"
                 >
                   Previous
                 </Button>
-                {Array.from({ length: Math.min(5, pagination.total_pages) }, (_, i) => {
-                  const page = i + 1
-                  return (
-                    <Button
-                      key={page}
-                      onClick={() => handlePageChange(page)}
-                      color={page === pagination.page ? "blue" : "gray"}
-                      size="sm"
-                    >
-                      {page}
-                    </Button>
-                  )
-                })}
+                
+                {/* Page Numbers */}
+                <div className="flex gap-1">
+                  {Array.from({ length: Math.min(5, pagination.total_pages) }, (_, i) => {
+                    const page = Math.max(1, pagination.page - 2) + i
+                    if (page > pagination.total_pages) return null
+                    
+                    return (
+                      <Button
+                        key={page}
+                        variant={page === pagination.page ? "primary" : "outline"}
+                        size="sm"
+                        onClick={() => handlePageChange(page)}
+                        className="w-10"
+                      >
+                        {page}
+                      </Button>
+                    )
+                  })}
+                </div>
+
                 <Button
+                  variant="outline"
+                  size="sm"
                   onClick={() => handlePageChange(pagination.page + 1)}
                   disabled={pagination.page === pagination.total_pages}
-                  color="gray"
-                  size="sm"
                 >
                   Next
                 </Button>
               </div>
             </div>
-          )}
-        </Card>
+          </Card>
+        )}
       </div>
     </div>
   )
@@ -463,7 +808,14 @@ function OrdersContent() {
 
 export default function OrdersPage() {
   return (
-    <Suspense fallback={<div>Loading...</div>}>
+    <Suspense fallback={
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading orders...</p>
+        </div>
+      </div>
+    }>
       <OrdersContent />
     </Suspense>
   )

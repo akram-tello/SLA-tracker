@@ -46,8 +46,13 @@ export interface KPISummary {
   on_time_orders: number;
   on_risk_orders: number;
   breached_orders: number;
+  pending_orders: number;
+  at_risk_pending_orders: number;
+  breached_pending_orders: number;
   completion_rate: number;
+  pending_rate: number;
   avg_delay_seconds: number;
+  avg_pending_hours: number;
 }
 
 export interface StageKPI {
@@ -74,7 +79,12 @@ export interface StageBreakdown {
   on_time: number;
   on_risk: number;
   breached: number;
+  pending: number;
+  at_risk_pending: number;
+  breached_pending: number;
   completion_rate: number;
+  pending_rate: number;
+  avg_pending_hours: number;
 }
 
 export interface DashboardSummary {
