@@ -210,7 +210,12 @@ interface Order {
   sla_status: string
   pending_status: string
   pending_hours: number
+  config_processed_tat?: string | null
+  config_shipped_tat?: string | null
+  config_delivered_tat?: string | null
 }
+
+
 
 interface OrdersResponse {
   orders: Order[]
@@ -349,6 +354,213 @@ function OrdersContent() {
     setIsModalOpen(false)
     setSelectedOrderNo(null)
   }
+
+  // New function to calculate stage analysis for all milestones
+  const calculateStageAnalysis = (order: Order) => {
+    const now = new Date();
+    const orderDate = new Date(order.order_date);
+    
+    // Helper function to format minutes to readable time
+    const formatMinutesToTime = (minutes: number): string => {
+      if (minutes < 60) return `${minutes}m`;
+      const hours = Math.floor(minutes / 60);
+      const remainingMinutes = minutes % 60;
+      if (hours < 24) {
+        return remainingMinutes > 0 ? `${hours}h ${remainingMinutes}m` : `${hours}h`;
+      }
+      const days = Math.floor(hours / 24);
+      const remainingHours = hours % 24;
+      if (remainingHours > 0) {
+        return `${days}d ${remainingHours}h`;
+      }
+      return `${days}d`;
+    };
+
+    // Helper function to parse TAT string to minutes
+    const parseTATToMinutes = (tat: string): number => {
+      let totalMinutes = 0;
+      
+      // Extract days
+      const dayMatch = tat.match(/(\d+)d/);
+      if (dayMatch) {
+        totalMinutes += parseInt(dayMatch[1]) * 24 * 60;
+      }
+      
+      // Extract hours
+      const hourMatch = tat.match(/(\d+)h/);
+      if (hourMatch) {
+        totalMinutes += parseInt(hourMatch[1]) * 60;
+      }
+      
+      // Extract minutes
+      const minuteMatch = tat.match(/(\d+)m/);
+      if (minuteMatch) {
+        totalMinutes += parseInt(minuteMatch[1]);
+      }
+      
+      return totalMinutes;
+    };
+
+    // Helper function to calculate time difference in minutes
+    const getTimeDifferenceMinutes = (start: Date, end: Date): number => {
+      return Math.floor((end.getTime() - start.getTime()) / (1000 * 60));
+    };
+
+    const stages = [];
+
+    // Processing Stage Analysis
+    const processedSLAMinutes = parseTATToMinutes(order.config_processed_tat || order.processed_tat || '2h');
+    
+    if (order.processed_time) {
+      // Order has been processed - check if it was on time
+      const actualProcessingMinutes = getTimeDifferenceMinutes(orderDate, new Date(order.processed_time));
+      let status: 'On Time' | 'At Risk' | 'Breached';
+      let exceededBy: string | null = null;
+      
+      if (actualProcessingMinutes > processedSLAMinutes) {
+        status = 'Breached';
+        exceededBy = formatMinutesToTime(actualProcessingMinutes - processedSLAMinutes);
+      } else {
+        status = 'On Time';
+      }
+
+      stages.push({
+        stage: 'Processing',
+        status,
+        actual_time: formatMinutesToTime(actualProcessingMinutes),
+        exceeded_by: exceededBy,
+        isCompleted: true
+      });
+    } else {
+      // Order hasn't been processed yet - check if it should have been
+      const timeSinceOrder = getTimeDifferenceMinutes(orderDate, now);
+      let status: 'On Time' | 'At Risk' | 'Breached';
+      let exceededBy: string | null = null;
+      
+      if (timeSinceOrder > processedSLAMinutes) {
+        status = 'Breached';
+        exceededBy = formatMinutesToTime(timeSinceOrder - processedSLAMinutes);
+      } else {
+        status = 'On Time';
+      }
+
+      stages.push({
+        stage: 'Processing',
+        status,
+        actual_time: `${formatMinutesToTime(timeSinceOrder)} (pending)`,
+        exceeded_by: exceededBy,
+        isCompleted: false
+      });
+    }
+
+    // Shipping Stage Analysis
+    const shippedSLAMinutes = parseTATToMinutes(order.config_shipped_tat || order.shipped_tat || '2d');
+    
+    if (order.shipped_time) {
+      // Order has been shipped - check if it was on time (total time from order placement)
+      const actualShippingMinutes = getTimeDifferenceMinutes(orderDate, new Date(order.shipped_time));
+      let status: 'On Time' | 'At Risk' | 'Breached';
+      let exceededBy: string | null = null;
+      
+      if (actualShippingMinutes > shippedSLAMinutes) {
+        status = 'Breached';
+        exceededBy = formatMinutesToTime(actualShippingMinutes - shippedSLAMinutes);
+      } else {
+        status = 'On Time';
+      }
+
+      stages.push({
+        stage: 'Shipping',
+        status,
+        actual_time: formatMinutesToTime(actualShippingMinutes),
+        exceeded_by: exceededBy,
+        isCompleted: true
+      });
+    } else if (order.processed_time) {
+      // Order processed but not shipped yet - check current status
+      const timeSinceOrder = getTimeDifferenceMinutes(orderDate, now);
+      let status: 'On Time' | 'At Risk' | 'Breached';
+      let exceededBy: string | null = null;
+      
+      if (timeSinceOrder > shippedSLAMinutes) {
+        status = 'Breached';
+        exceededBy = formatMinutesToTime(timeSinceOrder - shippedSLAMinutes);
+      } else {
+        status = 'On Time';
+      }
+
+      stages.push({
+        stage: 'Shipping',
+        status,
+        actual_time: `${formatMinutesToTime(timeSinceOrder)} pending`,
+        exceeded_by: exceededBy,
+        isCompleted: false
+      });
+    } else {
+      stages.push({
+        stage: 'Shipping',
+        status: 'N/A',
+        actual_time: null,
+        exceeded_by: null,
+        isCompleted: false
+      });
+    }
+
+    // Delivery Stage Analysis
+    const deliveredSLAMinutes = parseTATToMinutes(order.config_delivered_tat || order.delivered_tat || '7d');
+    
+    if (order.delivered_time) {
+      // Order has been delivered - check if it was on time (total time from order placement)
+      const actualDeliveryMinutes = getTimeDifferenceMinutes(orderDate, new Date(order.delivered_time));
+      let status: 'On Time' | 'At Risk' | 'Breached';
+      let exceededBy: string | null = null;
+      
+      if (actualDeliveryMinutes > deliveredSLAMinutes) {
+        status = 'Breached';
+        exceededBy = formatMinutesToTime(actualDeliveryMinutes - deliveredSLAMinutes);
+      } else {
+        status = 'On Time';
+      }
+
+      stages.push({
+        stage: 'Delivery',
+        status,
+        actual_time: formatMinutesToTime(actualDeliveryMinutes),
+        exceeded_by: exceededBy,
+        isCompleted: true
+      });
+    } else if (order.shipped_time) {
+      // Order shipped but not delivered yet - check current status
+      const timeSinceOrder = getTimeDifferenceMinutes(orderDate, now);
+      let status: 'On Time' | 'At Risk' | 'Breached';
+      let exceededBy: string | null = null;
+      
+      if (timeSinceOrder > deliveredSLAMinutes) {
+        status = 'Breached';
+        exceededBy = formatMinutesToTime(timeSinceOrder - deliveredSLAMinutes);
+      } else {
+        status = 'On Time';
+      }
+
+      stages.push({
+        stage: 'Delivery',
+        status,
+        actual_time: `${formatMinutesToTime(timeSinceOrder)} (pending)`,
+        exceeded_by: exceededBy,
+        isCompleted: false
+      });
+    } else {
+      stages.push({
+        stage: 'Delivery',
+        status: 'N/A',
+        actual_time: null,
+        exceeded_by: null,
+        isCompleted: false
+      });
+    }
+
+    return stages;
+  };
 
   // Enhanced Badge Functions
   const getSLABadge = (status: string) => {
@@ -616,62 +828,60 @@ function OrdersContent() {
                     }
                   };
 
-                  // Helper function to get timeline with pending delay information
-                  const getTimelineDisplay = (order: typeof orders[0]): string[] => {
+                  // Helper function to get timeline with stage analysis
+                  const getTimelineDisplay = (order: typeof orders[0]) => {
                     const timeline: string[] = [];
-                    const now = new Date();
+                    const stageAnalysis = calculateStageAnalysis(order);
                     
-                    // Helper to calculate time difference and format
-                    const formatTimeDiff = (start: Date, end: Date) => {
-                      const diffMs = end.getTime() - start.getTime();
-                      const diffMins = Math.floor(diffMs / (1000 * 60));
-                      
-                      if (diffMins < 60) {
-                        return `${diffMins}m`;
-                      } else if (diffMins < 1440) {
-                        const hours = Math.floor(diffMins / 60);
-                        const mins = diffMins % 60;
-                        return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`;
-                      } else {
-                        const days = Math.floor(diffMins / 1440);
-                        const hours = Math.floor((diffMins % 1440) / 60);
-                        return hours > 0 ? `${days}d ${hours}h` : `${days}d`;
+                    // Process each stage
+                    stageAnalysis.forEach((stage) => {
+                      if (stage.stage === 'Processing') {
+                        if (order.processed_time) {
+                          const processedDate = new Date(order.processed_time);
+                          let line = `Processed: ${format(processedDate, 'MMM dd, yyyy HH:mm')}`;
+                          if (stage.exceeded_by) {
+                            line += ` (was +${stage.exceeded_by} over SLA)`;
+                          }
+                          timeline.push(line);
+                        } else if (stage.actual_time) {
+                          let line = `Processing: (${stage.actual_time})`;
+                          if (stage.exceeded_by) {
+                            line += ` +${stage.exceeded_by} over SLA`;
+                          }
+                          timeline.push(line);
+                        }
+                      } else if (stage.stage === 'Shipping') {
+                        if (order.shipped_time) {
+                          const shippedDate = new Date(order.shipped_time);
+                          let line = `Shipped: ${format(shippedDate, 'MMM dd, yyyy HH:mm')}`;
+                          if (stage.exceeded_by) {
+                            line += ` (was +${stage.exceeded_by} over SLA)`;
+                          }
+                          timeline.push(line);
+                        } else if (stage.actual_time) {
+                          let line = `Shipping: (${stage.actual_time})`;
+                          if (stage.exceeded_by) {
+                            line += ` +${stage.exceeded_by} over SLA`;
+                          }
+                          timeline.push(line);
+                        }
+                      } else if (stage.stage === 'Delivery') {
+                        if (order.delivered_time) {
+                          const deliveredDate = new Date(order.delivered_time);
+                          let line = `Delivered: ${format(deliveredDate, 'MMM dd, yyyy HH:mm')}`;
+                          if (stage.exceeded_by) {
+                            line += ` (was +${stage.exceeded_by} over SLA)`;
+                          }
+                          timeline.push(line);
+                        } else if (stage.actual_time) {
+                          let line = `Delivery: ${stage.actual_time}`;
+                          if (stage.exceeded_by) {
+                            line += ` +${stage.exceeded_by} over SLA`;
+                          }
+                          timeline.push(line);
+                        }
                       }
-                    };
-
-                    // Add processed milestone if exists
-                    if (order.processed_time) {
-                      const processedDate = new Date(order.processed_time);
-                      
-                      // Check if currently pending in processed stage
-                      let pendingInfo = '';
-                      if (order.current_stage === 'Processed' && !order.shipped_time) {
-                        const pendingTime = formatTimeDiff(processedDate, now);
-                        pendingInfo = ` (${pendingTime} pending)`;
-                      }
-                      
-                      timeline.push(`Processed: ${format(processedDate, 'MMM dd, yyyy HH:mm')}${pendingInfo}`);
-                    }
-                    
-                    // Add shipped milestone if exists
-                    if (order.shipped_time) {
-                      const shippedDate = new Date(order.shipped_time);
-                      
-                      // Check if currently pending in shipped stage
-                      let pendingInfo = '';
-                      if (order.current_stage === 'Shipped' && !order.delivered_time) {
-                        const pendingTime = formatTimeDiff(shippedDate, now);
-                        pendingInfo = ` (${pendingTime} pending)`;
-                      }
-                      
-                      timeline.push(`Shipped: ${format(shippedDate, 'MMM dd, yyyy HH:mm')}${pendingInfo}`);
-                    }
-                    
-                    // Add delivered milestone if exists
-                    if (order.delivered_time) {
-                      const deliveredDate = new Date(order.delivered_time);
-                      timeline.push(`Delivered: ${format(deliveredDate, 'MMM dd, yyyy HH:mm')}`);
-                    }
+                    });
                     
                     return timeline.length > 0 ? timeline : ['N/A'];
                   };
@@ -722,19 +932,54 @@ function OrdersContent() {
                       <TableCell>
                         <div className="space-y-1 text-xs">
                           {getTimelineDisplay(order).map((line, index) => {
-                            // Check if line contains pending information
-                            const hasPending = line.includes('pending');
-                            if (hasPending) {
-                              // Split the line to highlight pending part in orange
-                              const parts = line.split('(');
-                              if (parts.length === 2) {
+                            // Check if line contains SLA breach information
+                            const hasOverSLA = line.includes('over SLA');
+                            const hasWasOverSLA = line.includes('was +');
+                            const isPending = line.includes('pending');
+                            
+                            if (hasOverSLA) {
+                              if (hasWasOverSLA) {
+                                // Format: "Shipped: Jul 14, 2025 01:42 (was +17h 39m over SLA)"
+                                const parts = line.split('(was +');
+                                if (parts.length === 2) {
+                                  const overSLAPart = parts[1].split(' over SLA')[0];
+                                  return (
+                                    <div key={index} className="text-gray-600">
+                                      {parts[0]}
+                                      <span className="text-red-600 font-medium">(was +{overSLAPart} over SLA)</span>
+                                    </div>
+                                  );
+                                }
+                              } else {
+                                // Format: "Delivery: 3d 13h pending +7h 10m over SLA"
+                                const stageName = line.split(':')[0];
+                                const restOfLine = line.substring(line.indexOf(':') + 1);
+                                
                                 return (
                                   <div key={index} className="text-gray-600">
-                                    {parts[0]}
-                                    <span className="text-orange-600 font-medium">({parts[1]}</span>
+                                    <span className="text-orange-600 font-medium">{stageName}:</span>
+                                    {restOfLine.includes('+') ? (
+                                      <>
+                                        <span className="text-orange-600 font-medium">{restOfLine.split('+')[0]}</span>
+                                        <span className="text-red-600 font-medium">+{restOfLine.split('+')[1]}</span>
+                                      </>
+                                    ) : (
+                                      <span className="text-orange-600 font-medium">{restOfLine}</span>
+                                    )}
                                   </div>
                                 );
                               }
+                            } else if (isPending) {
+                              // Format: "Shipping: 2d 9h pending" or "Delivery: 3d 13h pending"
+                              const stageName = line.split(':')[0];
+                              const restOfLine = line.substring(line.indexOf(':') + 1);
+                              
+                              return (
+                                <div key={index} className="text-gray-600">
+                                  <span className="text-orange-600 font-medium">{stageName}:</span>
+                                  <span className="text-orange-600 font-medium">{restOfLine}</span>
+                                </div>
+                              );
                             }
                             return (
                               <div key={index} className="text-gray-600">

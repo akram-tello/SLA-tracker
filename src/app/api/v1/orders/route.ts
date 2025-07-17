@@ -251,6 +251,7 @@ export async function GET(request: NextRequest) {
         o.processed_time, o.shipped_time, o.delivered_time,
         o.processed_tat, o.shipped_tat, o.delivered_tat,
         o.brand_name, o.country_code,
+        tc.processed_tat as config_processed_tat, tc.shipped_tat as config_shipped_tat, tc.delivered_tat as config_delivered_tat,
         ${slaStatusCase} as sla_status,
         ${pendingStatusCase} as pending_status,
         CASE 
@@ -369,6 +370,9 @@ export async function GET(request: NextRequest) {
       sla_status: String(row.sla_status || 'Unknown'),
       pending_status: String(row.pending_status || 'normal'),
       pending_hours: Number(row.pending_hours || 0),
+      config_processed_tat: row.config_processed_tat ? String(row.config_processed_tat) : null,
+      config_shipped_tat: row.config_shipped_tat ? String(row.config_shipped_tat) : null,
+      config_delivered_tat: row.config_delivered_tat ? String(row.config_delivered_tat) : null,
     }));
 
     return NextResponse.json({
