@@ -614,7 +614,7 @@ export class ETLService {
           WHERE brand_name = ? AND country_code = ?
         `, [brandName, country.toUpperCase()]);
 
-        // summary query with better stage handling
+        // summary query with better stage handling - excluding NOTCONFIRMED orders
         const summaryQuery = `
           INSERT INTO sla_daily_summary (
             summary_date, brand_name, brand_code, country_code, stage,
@@ -622,22 +622,20 @@ export class ETLService {
             orders_pending_total, orders_at_risk_pending, orders_breached_pending, 
             avg_pending_hours, avg_delay_sec
           )
-                    SELECT 
+          SELECT 
             DATE(placed_time) as summary_date,
             brand_name,
             '${brand}' as brand_code,
             country_code,
             CASE 
-              -- Order is in Not Processed stage if confirmation_status = 'NOTCONFIRMED'
-              WHEN confirmation_status = 'NOTCONFIRMED' THEN 'Not Processed'
               -- Order is in Delivered stage if it has delivered_time
               WHEN delivered_time IS NOT NULL THEN 'Delivered'
               -- Order is in Shipped stage if it has shipped_time but no delivered_time
               WHEN shipped_time IS NOT NULL AND delivered_time IS NULL THEN 'Shipped'
               -- Order is in Processed stage if it has processed_time but no shipped_time
               WHEN processed_time IS NOT NULL AND shipped_time IS NULL THEN 'Processed'
-              -- Fallback for edge cases - orders with placed_time but no clear stage
-              WHEN placed_time IS NOT NULL THEN 'Not Processed'
+              -- Fallback for confirmed orders without clear stage progression
+              WHEN placed_time IS NOT NULL AND confirmation_status != 'NOTCONFIRMED' THEN 'Processed'
               ELSE 'Unknown'
             END as current_stage,
             COUNT(*) as orders_total,
@@ -658,10 +656,6 @@ export class ETLService {
                 -- For processed (not shipped) orders, calculate actual time from placed to processed and compare with SLA
                 CASE WHEN TIMESTAMPDIFF(MINUTE, placed_time, processed_time) <= ${processedTATMinutes} 
                      THEN 1 ELSE 0 END
-                
-              WHEN confirmation_status = 'NOTCONFIRMED' THEN
-                -- For not processed orders, they are not yet in SLA workflow, so not counted as on-time
-                0
                 
               ELSE 0 -- Default case for edge scenarios
             END) as orders_on_time,
@@ -686,10 +680,6 @@ export class ETLService {
                           AND TIMESTAMPDIFF(MINUTE, placed_time, processed_time) <= ${processedTATMinutes}
                      THEN 1 ELSE 0 END
                 
-              WHEN confirmation_status = 'NOTCONFIRMED' THEN
-                -- For not processed orders, they are not yet in SLA workflow, so not counted as on-risk
-                0
-                
               ELSE 0
             END) as orders_on_risk,
             
@@ -710,16 +700,11 @@ export class ETLService {
                 CASE WHEN TIMESTAMPDIFF(MINUTE, placed_time, processed_time) > ${processedTATMinutes}
                      THEN 1 ELSE 0 END
                 
-              WHEN confirmation_status = 'NOTCONFIRMED' THEN
-                -- For not processed orders, they are not yet in SLA workflow, so not counted as breached
-                0
-                
               ELSE 0
             END) as orders_breached,
             
             -- Calculate pending orders (stuck in current stage beyond threshold)
             SUM(CASE 
-              WHEN confirmation_status = 'NOTCONFIRMED' AND TIMESTAMPDIFF(MINUTE, placed_time, NOW()) > ${pendingNotProcessedMinutes} THEN 1
               WHEN processed_time IS NOT NULL AND shipped_time IS NULL AND TIMESTAMPDIFF(MINUTE, processed_time, NOW()) > ${pendingProcessedMinutes} THEN 1
               WHEN shipped_time IS NOT NULL AND delivered_time IS NULL AND TIMESTAMPDIFF(MINUTE, shipped_time, NOW()) > ${pendingShippedMinutes} THEN 1
               ELSE 0
@@ -727,7 +712,6 @@ export class ETLService {
             
             -- Calculate at-risk AND pending orders
             SUM(CASE 
-              WHEN confirmation_status = 'NOTCONFIRMED' AND TIMESTAMPDIFF(MINUTE, placed_time, NOW()) > ${pendingNotProcessedMinutes} THEN 0 -- Not processed orders can't be at risk yet
               WHEN processed_time IS NOT NULL AND shipped_time IS NULL 
                    AND TIMESTAMPDIFF(MINUTE, processed_time, NOW()) > ${pendingProcessedMinutes}
                    AND TIMESTAMPDIFF(MINUTE, placed_time, processed_time) > ${processedRiskThreshold}
@@ -741,7 +725,6 @@ export class ETLService {
             
             -- Calculate breached AND pending orders  
             SUM(CASE 
-              WHEN confirmation_status = 'NOTCONFIRMED' AND TIMESTAMPDIFF(MINUTE, placed_time, NOW()) > ${pendingNotProcessedMinutes} THEN 0 -- Not processed orders can't be breached yet
               WHEN processed_time IS NOT NULL AND shipped_time IS NULL 
                    AND TIMESTAMPDIFF(MINUTE, processed_time, NOW()) > ${pendingProcessedMinutes}
                    AND TIMESTAMPDIFF(MINUTE, placed_time, processed_time) > ${processedTATMinutes} THEN 1
@@ -753,8 +736,6 @@ export class ETLService {
             
             -- Calculate average pending time (in hours) for pending orders only
             COALESCE(AVG(CASE 
-              WHEN confirmation_status = 'NOTCONFIRMED' AND TIMESTAMPDIFF(MINUTE, placed_time, NOW()) > ${pendingNotProcessedMinutes} 
-                   THEN TIMESTAMPDIFF(MINUTE, placed_time, NOW()) / 60.0
               WHEN processed_time IS NOT NULL AND shipped_time IS NULL AND TIMESTAMPDIFF(MINUTE, processed_time, NOW()) > ${pendingProcessedMinutes} 
                    THEN TIMESTAMPDIFF(MINUTE, processed_time, NOW()) / 60.0
               WHEN shipped_time IS NOT NULL AND delivered_time IS NULL AND TIMESTAMPDIFF(MINUTE, shipped_time, NOW()) > ${pendingShippedMinutes} 
@@ -786,11 +767,11 @@ export class ETLService {
             END), 0) as avg_delay_sec
           FROM ${targetTable}
           WHERE placed_time IS NOT NULL
+            AND confirmation_status != 'NOTCONFIRMED'
             AND (
               delivered_time IS NOT NULL OR 
               shipped_time IS NOT NULL OR 
-              processed_time IS NOT NULL OR
-              confirmation_status = 'NOTCONFIRMED'
+              processed_time IS NOT NULL
             )
           GROUP BY DATE(placed_time), brand_name, country_code, current_stage
           HAVING current_stage IS NOT NULL AND current_stage != 'Unknown'

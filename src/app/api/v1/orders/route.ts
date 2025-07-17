@@ -94,10 +94,18 @@ export async function GET(request: NextRequest) {
       params.push(filters.from_date, filters.to_date);
     }
 
-    // Add confirmation status filtering
+    // Simple filtering: exclude NOTCONFIRMED orders
     if (filters.confirmation_status) {
       whereConditions.push('confirmation_status = ?');
       params.push(filters.confirmation_status);
+    } else {
+      whereConditions.push('confirmation_status != ?');
+      params.push('NOTCONFIRMED');
+    }
+
+    // Filter out "Not Processed" orders from UI unless explicitly requested
+    if (filters.stage !== 'Not Processed') {
+      whereConditions.push('NOT (processed_time IS NULL AND shipped_time IS NULL AND delivered_time IS NULL)');
     }
 
     // Add stage filtering based on current stage of orders
@@ -238,7 +246,7 @@ export async function GET(request: NextRequest) {
     // Query ALL tables using UNION to get complete data set
     const buildUnionQuery = (queryType: 'count' | 'data', limit?: number, offset?: number) => {
       const baseSelectFields = queryType === 'count' ? 'COUNT(*) as count' : `
-        o.order_no, o.order_status, o.shipping_status, 
+        o.order_no, o.order_status, o.shipping_status, o.confirmation_status,
         o.placed_time as order_date,
         o.processed_time, o.shipped_time, o.delivered_time,
         o.processed_tat, o.shipped_tat, o.delivered_tat,
@@ -347,6 +355,7 @@ export async function GET(request: NextRequest) {
       order_no: String(row.order_no || ''),
       order_status: String(row.order_status || ''),
       shipping_status: String(row.shipping_status || ''),
+      confirmation_status: String(row.confirmation_status || ''),
       order_date: row.order_date,
       processed_time: row.processed_time,
       shipped_time: row.shipped_time,

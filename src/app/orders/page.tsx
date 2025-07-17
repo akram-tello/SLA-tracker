@@ -6,6 +6,7 @@ import { Download, ArrowLeft, Search, Filter, Package } from "lucide-react"
 import Link from "next/link"
 // import { OrderFilters } from "@/lib/types" // Not needed with new filter structure
 import { useSearchParams } from "next/navigation"
+import { OrderDetailsModal } from '@/components/orders/order-details-modal'
 
 // Enhanced UI Components
 const Button = ({ 
@@ -174,8 +175,12 @@ const TableBody = ({ children }: { children: React.ReactNode }) => (
   </tbody>
 );
 
-const TableRow = ({ children, className = "" }: { children: React.ReactNode; className?: string }) => (
-  <tr className={`hover:bg-gray-50 transition-colors ${className}`}>
+const TableRow = ({ children, className = "", onClick }: { 
+  children: React.ReactNode; 
+  className?: string;
+  onClick?: () => void;
+}) => (
+  <tr className={`hover:bg-gray-50 transition-colors ${className}`} onClick={onClick}>
     {children}
   </tr>
 );
@@ -191,6 +196,7 @@ interface Order {
   order_no: string
   order_status: string
   shipping_status: string
+  confirmation_status: string
   order_date: Date | string
   processed_time?: Date | string | null
   shipped_time?: Date | string | null
@@ -233,6 +239,10 @@ function OrdersContent() {
   const [loading, setLoading] = useState(true)
   const [showFilters, setShowFilters] = useState(false)
   
+  // Order details modal state
+  const [selectedOrderNo, setSelectedOrderNo] = useState<string | null>(null)
+  const [isModalOpen, setIsModalOpen] = useState(false)
+  
   // Enhanced Filter State
   const [filters, setFilters] = useState<FilterState>(() => ({
     search: "",
@@ -261,7 +271,7 @@ function OrdersContent() {
   ]
 
   const stageOptions = [
-    { value: "Not Processed", label: "Not Processed" },
+  
     { value: "Processed", label: "Processed" },
     { value: "Shipped", label: "Shipped" },
     { value: "Delivered", label: "Delivered" }
@@ -270,13 +280,6 @@ function OrdersContent() {
   const pendingStatusOptions = [
     { value: "pending", label: "Pending" },
     { value: "normal", label: "Normal" }
-  ]
-
-  const orderStatusOptions = [
-    { value: "NEW", label: "New" },
-    { value: "PROCESSING", label: "Processing" },
-    { value: "COMPLETED", label: "Completed" },
-    { value: "CANCELLED", label: "Cancelled" }
   ]
 
   const fetchOrders = async (currentFilters: FilterState, page: number = 1) => {
@@ -335,6 +338,16 @@ function OrdersContent() {
 
   const handlePageChange = (newPage: number) => {
     setPagination(prev => ({ ...prev, page: newPage }))
+  }
+
+  const handleOrderClick = (orderNo: string) => {
+    setSelectedOrderNo(orderNo)
+    setIsModalOpen(true)
+  }
+
+  const handleCloseModal = () => {
+    setIsModalOpen(false)
+    setSelectedOrderNo(null)
   }
 
   // Enhanced Badge Functions
@@ -532,15 +545,6 @@ function OrdersContent() {
                    onChange={(e) => handleFilterChange('to_date', e.target.value)}
                  />
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Order Status</label>
-                <Select
-                  value={filters.order_status}
-                  onChange={(value) => handleFilterChange('order_status', value)}
-                  options={orderStatusOptions}
-                  placeholder="Order Status"
-                />
-              </div>
             </div>
           </Card>
         )}
@@ -673,7 +677,11 @@ function OrdersContent() {
                   };
 
                   return (
-                    <TableRow key={order.order_no}>
+                    <TableRow 
+                      key={order.order_no}
+                      className="cursor-pointer hover:bg-gray-50"
+                      onClick={() => handleOrderClick(order.order_no)}
+                    >
                       {/* Order Details */}
                       <TableCell>
                         <div>
@@ -802,6 +810,13 @@ function OrdersContent() {
           </Card>
         )}
       </div>
+
+      {/* Order Details Modal */}
+      <OrderDetailsModal
+        isOpen={isModalOpen}
+        onClose={handleCloseModal}
+        orderNo={selectedOrderNo}
+      />
     </div>
   )
 }
