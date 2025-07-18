@@ -184,9 +184,9 @@ export class ETLService {
       
       console.log(`Related tables found - Payment: ${paymentTable}, Shipment: ${shipmentTable}`);
       
-      // Get total count
-      const [countResult] = await masterDb.execute(`SELECT COUNT(*) as total FROM ${sourceTable}`);
-      const totalRecords = (countResult as { total: number }[])[0].total;
+              // Get total count of confirmed orders only
+        const [countResult] = await masterDb.execute(`SELECT COUNT(*) as total FROM ${sourceTable} WHERE confirmation_status = 'CONFIRMED'`);
+        const totalRecords = (countResult as { total: number }[])[0].total;
       
       console.log(`Total records in ${sourceTable}: ${totalRecords}`);
 
@@ -468,6 +468,7 @@ export class ETLService {
       const batchQuery = `
         SELECT ${selectFields}
         ${joinClauses}
+        WHERE o.confirmation_status = 'CONFIRMED'
         ORDER BY o.order_created_date_time DESC
         LIMIT ${batchSize} OFFSET ${offset}
       `;
@@ -490,7 +491,8 @@ export class ETLService {
             INSERT INTO ${targetTable} (${columns.join(', ')})
             VALUES (${placeholders})
             ON DUPLICATE KEY UPDATE
-            ${columns.filter(col => col !== 'order_no').map(col => `${col} = VALUES(${col})`).join(', ')}
+            ${columns.filter(col => col !== 'order_no').map(col => `${col} = VALUES(${col})`).join(', ')},
+            updated_at = CURRENT_TIMESTAMP
           `;
 
           await analyticsDb.execute(upsertQuery, values);
@@ -614,7 +616,7 @@ export class ETLService {
           WHERE brand_name = ? AND country_code = ?
         `, [brandName, country.toUpperCase()]);
 
-        // summary query with better stage handling - excluding NOTCONFIRMED orders
+        // summary query with better stage handling - including only CONFIRMED orders
         const summaryQuery = `
           INSERT INTO sla_daily_summary (
             summary_date, brand_name, brand_code, country_code, stage,
@@ -635,7 +637,7 @@ export class ETLService {
               -- Order is in Processed stage if it has processed_time but no shipped_time
               WHEN processed_time IS NOT NULL AND shipped_time IS NULL THEN 'Processed'
               -- Fallback for confirmed orders without clear stage progression
-              WHEN placed_time IS NOT NULL AND confirmation_status != 'NOTCONFIRMED' THEN 'Processed'
+              WHEN placed_time IS NOT NULL AND confirmation_status = 'CONFIRMED' THEN 'Processed'
               ELSE 'Unknown'
             END as current_stage,
             COUNT(*) as orders_total,
@@ -767,7 +769,7 @@ export class ETLService {
             END), 0) as avg_delay_sec
           FROM ${targetTable}
           WHERE placed_time IS NOT NULL
-            AND confirmation_status != 'NOTCONFIRMED'
+            AND confirmation_status = 'CONFIRMED'
             AND (
               delivered_time IS NOT NULL OR 
               shipped_time IS NOT NULL OR 

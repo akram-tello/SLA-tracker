@@ -10,7 +10,12 @@
     "lint": "next lint",
     "type-check": "tsc --noEmit",
     "db:migrate": "mysql -u $ANALYTICS_DB_USER -p$ANALYTICS_DB_PASSWORD < migrations/001_create_schema.sql",
-    "test": "echo \"No tests specified\" && exit 0"
+    "test": "echo \"No tests specified\" && exit 0",
+    "etl:setup": "./scripts/setup-cron.sh",
+    "etl:monitor": "./scripts/monitor-etl.sh",
+    "etl:sync": "curl -X POST ${ETL_API_URL:-http://localhost:3000}/api/v1/etl/sync",
+    "etl:status": "curl ${ETL_API_URL:-http://localhost:3000}/api/v1/etl/status",
+    "etl:health": "curl ${ETL_API_URL:-http://localhost:3000}/api/v1/dashboard/health"
   },
       "dependencies": {
       "apexcharts": "^4.0.0",

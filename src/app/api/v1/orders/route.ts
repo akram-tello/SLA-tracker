@@ -94,13 +94,13 @@ export async function GET(request: NextRequest) {
       params.push(filters.from_date, filters.to_date);
     }
 
-    // Simple filtering: exclude NOTCONFIRMED orders
+    // only include CONFIRMED orders by default
     if (filters.confirmation_status) {
       whereConditions.push('confirmation_status = ?');
       params.push(filters.confirmation_status);
     } else {
-      whereConditions.push('confirmation_status != ?');
-      params.push('NOTCONFIRMED');
+      whereConditions.push('confirmation_status = ?');
+      params.push('CONFIRMED');
     }
 
     // Filter out "Not Processed" orders from UI unless explicitly requested
