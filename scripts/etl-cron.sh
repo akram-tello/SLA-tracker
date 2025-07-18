@@ -8,9 +8,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 LOG_DIR="$PROJECT_ROOT/logs"
 
-# Load environment variables if .env.local exists
+# Load environment variables if .env.local or .env exists
 if [ -f "$PROJECT_ROOT/.env.local" ]; then
     export $(grep -v '^#' "$PROJECT_ROOT/.env.local" | xargs)
+elif [ -f "$PROJECT_ROOT/.env" ]; then
+    export $(grep -v '^#' "$PROJECT_ROOT/.env" | xargs)
 fi
 
 # API URL configuration - supports both development and production
