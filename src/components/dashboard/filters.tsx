@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { format, subMonths, startOfMonth, endOfMonth } from "date-fns"
+import { format } from "date-fns"
 import { useDashboard } from "@/lib/dashboard-context"
 import { RefreshCw } from "lucide-react"
 
@@ -22,52 +22,82 @@ export function Filters() {
     })
   }, [fromDate, toDate, selectedBrand, selectedCountry, setFilters])
 
-  const handleQuickDate = (months: number) => {
-    const monthsAgo = subMonths(new Date(), months)
-    const from = format(startOfMonth(monthsAgo), 'yyyy-MM-dd')
-    const to = format(endOfMonth(new Date()), 'yyyy-MM-dd')
+  const handleQuickDate = (type: 'today' | 'yesterday' | 'last7days') => {
+    const today = new Date()
+    let from: string, to: string
+    
+    switch (type) {
+      case 'today':
+        from = format(today, 'yyyy-MM-dd')
+        to = format(today, 'yyyy-MM-dd')
+        break
+      case 'yesterday':
+        const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000)
+        from = format(yesterday, 'yyyy-MM-dd')
+        to = format(yesterday, 'yyyy-MM-dd')
+        break
+      case 'last7days':
+        const sevenDaysAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000)
+        from = format(sevenDaysAgo, 'yyyy-MM-dd')
+        to = format(today, 'yyyy-MM-dd')
+        break
+    }
+    
     setFromDate(from)
     setToDate(to)
   }
 
   // Check if current date range matches quick select periods
-  const isLast3Months = () => {
-    const threeMonthsAgo = startOfMonth(subMonths(new Date(), 3))
-    const endOfCurrentMonth = endOfMonth(new Date())
-    return fromDate === format(threeMonthsAgo, 'yyyy-MM-dd') && 
-           toDate === format(endOfCurrentMonth, 'yyyy-MM-dd')
+  const isToday = () => {
+    const today = format(new Date(), 'yyyy-MM-dd')
+    return fromDate === today && toDate === today
   }
 
-  const isLast6Months = () => {
-    const sixMonthsAgo = startOfMonth(subMonths(new Date(), 6))
-    const endOfCurrentMonth = endOfMonth(new Date())
-    return fromDate === format(sixMonthsAgo, 'yyyy-MM-dd') && 
-           toDate === format(endOfCurrentMonth, 'yyyy-MM-dd')
+  const isYesterday = () => {
+    const yesterday = format(new Date(Date.now() - 24 * 60 * 60 * 1000), 'yyyy-MM-dd')
+    return fromDate === yesterday && toDate === yesterday
+  }
+
+  const isLast7Days = () => {
+    const today = format(new Date(), 'yyyy-MM-dd')
+    const sevenDaysAgo = format(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000), 'yyyy-MM-dd')
+    return fromDate === sevenDaysAgo && toDate === today
   }
 
   return (
-    <div className="flex items-center gap-3 py-2 text-sm">
+    <div className="bg-white/60 dark:bg-gray-800/60 backdrop-blur-sm rounded-xl border border-gray-200 dark:border-gray-700 p-4 shadow-sm">
+      <div className="flex items-center gap-3 text-sm">
       {/* Improved Quick Date Buttons */}
       <div className="flex gap-1">
         <button
-          onClick={() => handleQuickDate(3)}
+          onClick={() => handleQuickDate('today')}
           className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
-            isLast3Months() 
+            isToday() 
               ? 'bg-blue-100 text-blue-700 border border-blue-200 dark:bg-blue-900 dark:text-blue-200 dark:border-blue-700' 
               : 'bg-gray-50 text-gray-600 border border-gray-200 hover:bg-gray-100 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-600 dark:hover:bg-gray-700'
           }`}
         >
-          Last 3 Months
+          Today
         </button>
         <button
-          onClick={() => handleQuickDate(6)}
+          onClick={() => handleQuickDate('yesterday')}
           className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
-            isLast6Months() 
+            isYesterday() 
               ? 'bg-blue-100 text-blue-700 border border-blue-200 dark:bg-blue-900 dark:text-blue-200 dark:border-blue-700' 
               : 'bg-gray-50 text-gray-600 border border-gray-200 hover:bg-gray-100 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-600 dark:hover:bg-gray-700'
           }`}
         >
-          Last 6 Months
+          Yesterday
+        </button>
+        <button
+          onClick={() => handleQuickDate('last7days')}
+          className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+            isLast7Days() 
+              ? 'bg-blue-100 text-blue-700 border border-blue-200 dark:bg-blue-900 dark:text-blue-200 dark:border-blue-700' 
+              : 'bg-gray-50 text-gray-600 border border-gray-200 hover:bg-gray-100 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-600 dark:hover:bg-gray-700'
+          }`}
+        >
+          Last 7 Days
         </button>
       </div>
 
@@ -124,6 +154,7 @@ export function Filters() {
       >
         <RefreshCw className="h-3 w-3" />
       </button>
+      </div>
     </div>
   )
 } 

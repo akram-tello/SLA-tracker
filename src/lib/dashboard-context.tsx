@@ -1,7 +1,7 @@
 "use client"
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { format, startOfMonth, endOfMonth, subMonths } from 'date-fns';
+import { format } from 'date-fns';
 import { DashboardSummary } from '@/lib/types';
 
 interface FilterOption {
@@ -57,12 +57,11 @@ interface DashboardProviderProps {
 
 // Create a stable default date range to avoid hydration mismatch
 const getDefaultDateRange = () => {
-  // Use a fixed reference date to ensure server/client consistency
+  // Use today's date to show current day data by default
   const now = new Date();
-  const threeMonthsAgo = subMonths(now, 3);
   return {
-    from_date: format(startOfMonth(threeMonthsAgo), 'yyyy-MM-dd'),
-    to_date: format(endOfMonth(now), 'yyyy-MM-dd'),
+    from_date: format(now, 'yyyy-MM-dd'),
+    to_date: format(now, 'yyyy-MM-dd'),
   };
 };
 

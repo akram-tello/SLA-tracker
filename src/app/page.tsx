@@ -11,14 +11,10 @@ import { DashboardProvider, useDashboard } from '@/lib/dashboard-context';
 import { KPICards } from '@/components/dashboard/kpi-cards';
 import { SLAChart } from '@/components/dashboard/sla-chart';
 import { StageBreakdown } from '@/components/dashboard/stage-breakdown';
+import { StagePerformanceChart } from '@/components/dashboard/stage-performance-chart';
 import { Filters } from '@/components/dashboard/filters';
 
-// Custom Tailwind components
-const Card = ({ children, className = "" }: { children: React.ReactNode; className?: string }) => (
-  <div className={`bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6 ${className}`}>
-    {children}
-  </div>
-);
+// The Card component is now used within individual chart components
 
 function DashboardContent() {
   const [mounted, setMounted] = useState(false);
@@ -71,15 +67,15 @@ function DashboardContent() {
   const { title, subtitle } = getDynamicTitle();
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800 transition-colors duration-200">
       <main className="container mx-auto px-4 py-8">
         {/* Page Header */}
         <div className="mb-8 flex justify-between items-center">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-1">
+            <h1 className="text-4xl font-bold text-gray-900 dark:text-white mb-2">
               {title}
             </h1>
-            <p className="text-gray-600 dark:text-gray-400 text-sm">
+            <p className="text-gray-600 dark:text-gray-300 text-base">
               {subtitle}
             </p>
           </div>
@@ -87,7 +83,7 @@ function DashboardContent() {
             {/* Theme Toggle */}
             <button
               onClick={toggleTheme}
-              className="p-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+              className="p-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm text-gray-700 dark:text-gray-300 hover:bg-white dark:hover:bg-gray-700 hover:shadow-md transition-all duration-200"
               aria-label="Toggle theme"
               suppressHydrationWarning
             >
@@ -100,7 +96,7 @@ function DashboardContent() {
 
             {/* Profile Button */}
             <button
-              className="p-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+              className="p-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm text-gray-700 dark:text-gray-300 hover:bg-white dark:hover:bg-gray-700 hover:shadow-md transition-all duration-200"
               aria-label="User profile"
             >
               <User className="h-5 w-5" />
@@ -113,19 +109,35 @@ function DashboardContent() {
           <Filters />
         </div>
 
-        {/* KPI Cards */}
+        {/* 1. Overview Section */}
         <div className="mb-8">
-          <KPICards />
+          <KPICards section="overview" />
         </div>
 
-        {/* Charts Section */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
-          <Card>
-            <SLAChart />
-          </Card>
-          <Card>
-            <StageBreakdown />
-          </Card>
+        {/* 2. Charts Section */}
+        <div className="mb-8">
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-6">Performance Analytics</h2>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            {/* Left Column - Stacked Bar Chart */}
+            <div>
+              <SLAChart />
+            </div>
+
+            {/* Right Column - Pie Charts */}
+            <div>
+              <StagePerformanceChart />
+            </div>
+          </div>
+        </div>
+
+        {/* 3. Action Required Section */}
+        <div className="mb-8">
+          <KPICards section="action-required" />
+        </div>
+
+        {/* 4. Stage Breakdown Section */}
+        <div className="mb-8">
+          <StageBreakdown />
         </div>
       </main>
     </div>

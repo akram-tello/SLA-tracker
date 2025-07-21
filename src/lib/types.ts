@@ -46,6 +46,18 @@ export interface KPISummary {
   on_time_orders: number;
   on_risk_orders: number;
   breached_orders: number;
+  // NEW: Action Required + SLA Status + Stage combinations
+  action_required_breached_processed: number;
+  action_required_breached_shipped: number;
+  action_required_breached_delivered: number;
+  action_required_at_risk_processed: number;
+  action_required_at_risk_shipped: number;
+  action_required_at_risk_delivered: number;
+  action_required_on_time_processed: number;
+  action_required_on_time_shipped: number;
+  action_required_on_time_delivered: number;
+  fulfilled_orders: number;
+  // Existing pending metrics
   pending_orders: number;
   at_risk_pending_orders: number;
   breached_pending_orders: number;
@@ -53,6 +65,7 @@ export interface KPISummary {
   pending_rate: number;
   avg_delay_seconds: number;
   avg_pending_hours: number;
+  last_refresh?: string | null;
 }
 
 export interface StageKPI {
@@ -69,8 +82,10 @@ export interface ChartData {
   date: string;
   total_orders: number;
   on_time_orders: number;
+  on_risk_orders: number;
   breached_orders: number;
   completion_rate: number;
+  pending_rate?: number; // Optional for backward compatibility
 }
 
 export interface StageBreakdown {

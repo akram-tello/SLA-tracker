@@ -2,8 +2,9 @@
 
 import React, { useState, useEffect, Suspense } from "react"
 import { format } from "date-fns"
-import { Download, ArrowLeft, Search, Filter, Package } from "lucide-react"
+import { Download, ArrowLeft, Filter, Package, Moon, Sun } from "lucide-react"
 import Link from "next/link"
+import { useTheme } from 'next-themes'
 // import { OrderFilters } from "@/lib/types" // Not needed with new filter structure
 import { useSearchParams } from "next/navigation"
 import { OrderDetailsModal } from '@/components/orders/order-details-modal'
@@ -27,11 +28,11 @@ const Button = ({
   icon?: React.ReactNode;
 }) => {
   const variants = {
-    primary: "bg-blue-600 hover:bg-blue-700 text-white border-transparent",
-    secondary: "bg-gray-600 hover:bg-gray-700 text-white border-transparent",
-    outline: "bg-transparent hover:bg-gray-50 text-gray-700 border-gray-300",
-    ghost: "bg-transparent hover:bg-gray-100 text-gray-700 border-transparent",
-    danger: "bg-red-600 hover:bg-red-700 text-white border-transparent"
+    primary: "bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 text-white border-transparent",
+    secondary: "bg-gray-600 hover:bg-gray-700 dark:bg-gray-500 dark:hover:bg-gray-600 text-white border-transparent",
+    outline: "bg-transparent hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600",
+    ghost: "bg-transparent hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300 border-transparent",
+    danger: "bg-red-600 hover:bg-red-700 dark:bg-red-500 dark:hover:bg-red-600 text-white border-transparent"
   };
   
   const sizes = {
@@ -62,12 +63,12 @@ const Badge = ({
   size?: "sm" | "md";
 }) => {
   const variants = {
-    success: "bg-green-100 text-green-800 border-green-200",
-    warning: "bg-yellow-100 text-yellow-800 border-yellow-200",
-    danger: "bg-red-100 text-red-800 border-red-200",
-    info: "bg-blue-100 text-blue-800 border-blue-200",
-    purple: "bg-purple-100 text-purple-800 border-purple-200",
-    gray: "bg-gray-100 text-gray-800 border-gray-200"
+    success: "bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300 border-green-200 dark:border-green-700",
+    warning: "bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-300 border-yellow-200 dark:border-yellow-700",
+    danger: "bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300 border-red-200 dark:border-red-700",
+    info: "bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-300 border-blue-200 dark:border-blue-700",
+    purple: "bg-purple-100 dark:bg-purple-900/30 text-purple-800 dark:text-purple-300 border-purple-200 dark:border-purple-700",
+    gray: "bg-gray-100 dark:bg-gray-700/30 text-gray-800 dark:text-gray-300 border-gray-200 dark:border-gray-600"
   };
   
   const sizes = {
@@ -82,75 +83,24 @@ const Badge = ({
   );
 };
 
-const Card = ({ children, className = "" }: { children: React.ReactNode; className?: string }) => (
-  <div className={`bg-white rounded-xl shadow-sm border border-gray-200 ${className}`}>
+// Updated Card component to match dashboard styling
+const Card = ({ 
+  children, 
+  className = "" 
+}: { 
+  children: React.ReactNode; 
+  className?: string;
+}) => (
+  <div className={`bg-white/60 dark:bg-gray-800/60 backdrop-blur-sm rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm ${className}`}>
     {children}
   </div>
 );
 
-const Input = ({ 
-  type = "text", 
-  placeholder, 
-  value, 
-  onChange, 
-  icon,
-  className = "" 
-}: {
-  type?: string;
-  placeholder?: string;
-  value: string;
-  onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
-  icon?: React.ReactNode;
-  className?: string;
-}) => (
-  <div className="relative">
-    {icon && (
-      <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-        <div className="h-4 w-4 text-gray-400">{icon}</div>
-      </div>
-    )}
-    <input
-      type={type}
-      value={value}
-      onChange={onChange}
-      placeholder={placeholder}
-      className={`block w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 ${icon ? 'pl-10' : ''} ${className}`}
-    />
-  </div>
-);
-
-const Select = ({ 
-  value, 
-  onChange, 
-  options, 
-  placeholder = "Select...",
-  className = "" 
-}: {
-  value: string;
-  onChange: (value: string) => void;
-  options: { value: string; label: string }[];
-  placeholder?: string;
-  className?: string;
-}) => (
-  <select
-    value={value}
-    onChange={(e) => onChange(e.target.value)}
-    className={`block w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 ${className}`}
-  >
-    <option value="">{placeholder}</option>
-    {options.map((option) => (
-      <option key={option.value} value={option.value}>
-        {option.label}
-      </option>
-    ))}
-  </select>
-);
-
 // Enhanced Table Components
 const Table = ({ children }: { children: React.ReactNode }) => (
-  <div className="overflow-hidden rounded-lg border border-gray-200">
+  <div className="overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700">
     <div className="overflow-x-auto">
-      <table className="min-w-full divide-y divide-gray-200">
+      <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700 bg-white dark:bg-gray-800">
         {children}
       </table>
     </div>
@@ -158,14 +108,14 @@ const Table = ({ children }: { children: React.ReactNode }) => (
 );
 
 const TableHeader = ({ children }: { children: React.ReactNode }) => (
-  <thead className="bg-gray-50">
+  <thead className="bg-gray-50 dark:bg-gray-900/50">
     {children}
   </thead>
 );
 
 const TableHeaderCell = ({ children, className = "", onClick }: { children: React.ReactNode; className?: string; onClick?: () => void }) => (
   <th 
-    className={`px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider ${className}`}
+    className={`px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider hover:bg-gray-100 dark:hover:bg-gray-800 ${className}`}
     onClick={onClick}
   >
     {children}
@@ -173,7 +123,7 @@ const TableHeaderCell = ({ children, className = "", onClick }: { children: Reac
 );
 
 const TableBody = ({ children }: { children: React.ReactNode }) => (
-  <tbody className="bg-white divide-y divide-gray-200">
+  <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
     {children}
   </tbody>
 );
@@ -183,13 +133,13 @@ const TableRow = ({ children, className = "", onClick }: {
   className?: string;
   onClick?: () => void;
 }) => (
-  <tr className={`hover:bg-gray-50 transition-colors ${className}`} onClick={onClick}>
+  <tr className={`hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors ${className}`} onClick={onClick}>
     {children}
   </tr>
 );
 
 const TableCell = ({ children, className = "", colSpan }: { children: React.ReactNode; className?: string; colSpan?: number }) => (
-  <td className={`px-6 py-4 whitespace-nowrap text-sm ${className}`} colSpan={colSpan}>
+  <td className={`px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100 ${className}`} colSpan={colSpan}>
     {children}
   </td>
 );
@@ -224,6 +174,22 @@ interface SortConfig {
   direction: 'asc' | 'desc';
 }
 
+// Filter State Interface  
+interface FilterState {
+  search: string
+  sla_status: string
+  stage: string
+  pending_status: string
+  fulfilment_status: string  // Changed from action_status to fulfilment_status
+  brand: string
+  country: string
+  from_date: string
+  to_date: string
+  order_status: string
+}
+
+// Helper function to calculate actionable status - REMOVED since we're not using Action Status anymore
+
 
 interface OrdersResponse {
   orders: Order[]
@@ -233,24 +199,17 @@ interface OrdersResponse {
   total_pages: number
 }
 
-// Filter State Interface
-interface FilterState {
-  search: string
-  sla_status: string
-  stage: string
-  pending_status: string
-  brand: string
-  country: string
-  from_date: string
-  to_date: string
-  order_status: string
-}
-
 function OrdersContent() {
   const searchParams = useSearchParams()
   const [orders, setOrders] = useState<Order[]>([])
   const [loading, setLoading] = useState(true)
   const [showFilters, setShowFilters] = useState(false)
+  const [mounted, setMounted] = useState(false)
+  const { theme, setTheme } = useTheme()
+
+  useEffect(() => {
+    setMounted(true)
+  }, [])
   
   // Order details modal state
   const [selectedOrderNo, setSelectedOrderNo] = useState<string | null>(null)
@@ -268,6 +227,7 @@ function OrdersContent() {
     sla_status: searchParams.get('sla_status') || '',
     stage: searchParams.get('stage') || '',
     pending_status: searchParams.get('pending_status') || '',
+    fulfilment_status: searchParams.get('fulfilment_status') || '',
     brand: searchParams.get('brand') || '',
     country: searchParams.get('country') || '',
     from_date: searchParams.get('from_date') || '',
@@ -282,6 +242,53 @@ function OrdersContent() {
     limit: 20
   })
 
+  // Filter Options State (like dashboard)
+  const [filterOptions, setFilterOptions] = useState<{
+    brands: Array<{ code: string; name: string }>;
+    countries: Array<{ code: string; name: string }>;
+  }>({
+    brands: [],
+    countries: []
+  })
+  const [loadingFilterOptions, setLoadingFilterOptions] = useState(true)
+
+  // Fetch filter options from dashboard API
+  const fetchFilterOptions = async () => {
+    setLoadingFilterOptions(true)
+    try {
+      const response = await fetch('/api/v1/dashboard/filters')
+      if (!response.ok) {
+        console.warn(`Filter options API returned ${response.status}, using fallback`)
+      }
+      
+      const data = await response.json()
+      setFilterOptions({
+        brands: data.brands || [],
+        countries: data.countries || []
+      })
+    } catch (err) {
+      console.error('Error fetching filter options:', err)
+      // Set fallback options if API fails
+      setFilterOptions({
+        brands: [
+          { code: 'vs', name: "Victoria's Secret" },
+          { code: 'bbw', name: 'Bath & Body Works' }
+        ],
+        countries: [
+          { code: 'MY', name: 'Malaysia' },
+          { code: 'SG', name: 'Singapore' }
+        ]
+      })
+    } finally {
+      setLoadingFilterOptions(false)
+    }
+  }
+
+  // Fetch filter options on mount
+  useEffect(() => {
+    fetchFilterOptions()
+  }, [])
+
   // Filter Options
   const slaStatusOptions = [
     { value: "On Time", label: "On Time" },
@@ -290,15 +297,21 @@ function OrdersContent() {
   ]
 
   const stageOptions = [
-  
     { value: "Processed", label: "Processed" },
     { value: "Shipped", label: "Shipped" },
     { value: "Delivered", label: "Delivered" }
   ]
 
+  // FIXED: Better pending status options with clearer operational language
   const pendingStatusOptions = [
-    { value: "pending", label: "Pending" },
-    { value: "normal", label: "Normal" }
+    { value: "pending", label: "🚨 Action Required (Overdue)" },
+    { value: "normal", label: "✅ On Track (Within Thresholds)" }
+  ]
+
+  // Fulfilment Status Options
+  const fulfilmentStatusOptions = [
+    { value: "fulfilled", label: "Fulfilled" },
+    { value: "not_fulfilled", label: "Not Fulfilled" }
   ]
 
   const fetchOrders = async (currentFilters: FilterState, page: number = 1) => {
@@ -312,7 +325,18 @@ function OrdersContent() {
       
       if (currentFilters.search) params.append('order_no', currentFilters.search)
       if (currentFilters.sla_status) params.append('sla_status', currentFilters.sla_status)
-      if (currentFilters.stage) params.append('stage', currentFilters.stage)
+      
+      // Handle stage filtering based on fulfilment_status
+      let stageFilter = currentFilters.stage
+      if (currentFilters.fulfilment_status === 'fulfilled') {
+        stageFilter = 'Delivered'
+      } else if (currentFilters.fulfilment_status === 'not_fulfilled') {
+        // For not fulfilled, we want to exclude delivered orders
+        // We'll handle this client-side since API doesn't support "NOT" filters
+        stageFilter = currentFilters.stage
+      }
+      
+      if (stageFilter) params.append('stage', stageFilter)
       if (currentFilters.pending_status) params.append('pending_status', currentFilters.pending_status)
       if (currentFilters.brand) params.append('brand', currentFilters.brand)
       if (currentFilters.country) params.append('country', currentFilters.country)
@@ -324,12 +348,19 @@ function OrdersContent() {
       if (!response.ok) throw new Error('Failed to fetch orders')
       
       const data: OrdersResponse = await response.json()
-      setOrders(data.orders)
+      let filteredOrders = data.orders
+      
+      // Apply client-side fulfilment_status filtering for "not_fulfilled"
+      if (currentFilters.fulfilment_status === 'not_fulfilled') {
+        filteredOrders = data.orders.filter(order => order.current_stage !== 'Delivered')
+      }
+      
+      setOrders(filteredOrders)
       setPagination(prev => ({
         ...prev,
-        total: data.total,
+        total: currentFilters.fulfilment_status === 'not_fulfilled' ? filteredOrders.length : data.total,
         page: data.page,
-        total_pages: data.total_pages,
+        total_pages: currentFilters.fulfilment_status === 'not_fulfilled' ? Math.ceil(filteredOrders.length / pagination.limit) : data.total_pages,
       }))
     } catch (error) {
       console.error('Error fetching orders:', error)
@@ -350,7 +381,7 @@ function OrdersContent() {
 
   const clearFilters = () => {
     setFilters({
-      search: "", sla_status: "", stage: "", pending_status: "",
+      search: "", sla_status: "", stage: "", pending_status: "", fulfilment_status: "",
       brand: "", country: "", from_date: "", to_date: "", order_status: ""
     })
   }
@@ -611,9 +642,102 @@ function OrdersContent() {
     }
   }
 
+  // Helper function to calculate actionable status for SLA display
+  const getActionableStatus = (order: Order): string => {
+    // Always fulfilled if delivered
+    if (order.current_stage === 'Delivered') {
+      return 'Fulfilled';
+    }
+    
+    // Check for action required (pending beyond thresholds)
+    if (order.pending_status === 'pending') {
+      switch (order.current_stage) {
+        case 'Not Processed':
+          return 'Action Required - Processing Overdue';
+        case 'Processed':
+          return 'Action Required - Shipping Overdue';
+        case 'Shipped':
+          return 'Action Required - Delivery Overdue';
+        default:
+          return 'Action Required';
+      }
+    }
+    
+    // Check for at-risk orders (approaching SLA breach)
+    if (order.sla_status === 'At Risk') {
+      switch (order.current_stage) {
+        case 'Not Processed':
+          return 'At Risk - Processing';
+        case 'Processed':
+          return 'At Risk - Shipping';
+        case 'Shipped':
+          return 'At Risk - Delivery';
+        default:
+          return 'At Risk';
+      }
+    }
+    
+    // Check for already breached orders
+    if (order.sla_status === 'Breached') {
+      switch (order.current_stage) {
+        case 'Not Processed':
+          return 'Breached - Processing';
+        case 'Processed':
+          return 'Breached - Shipping';
+        case 'Shipped':
+          return 'Breached - Delivery';
+        default:
+          return 'Breached';
+      }
+    }
+    
+    // Everything else is on track
+    return 'On Track';
+  };
+
+  // Enhanced SLA Badge that shows only traditional SLA status
+  const getEnhancedSLABadge = (order: typeof orders[0]) => {
+    if (order.current_stage === 'Not Processed') {
+      return <span className="text-sm text-gray-500">N/A</span>;
+    }
+
+    // Just show traditional SLA status
+    return getSLABadge(order.sla_status);
+  }
+
+  // Enhanced Fulfilment Badge that shows both fulfilment status and pending information
+  const getEnhancedFulfilmentBadge = (order: typeof orders[0]) => {
+    const isOverdue = order.pending_status === 'pending';
+    const actionStatus = getActionableStatus(order);
+    
+    return (
+      <div className="space-y-1">
+        {/* Traditional Fulfilment Status */}
+        <div>
+          {getFulfilmentBadge(order)}
+        </div>
+        
+        {/* Pending Information - Only show if overdue */}
+        {isOverdue && (
+          <div className="text-xs">
+            {actionStatus.includes('Action Required') ? (
+              <Badge variant="danger" size="sm">🚨 {actionStatus.replace('Action Required - ', '')}</Badge>
+            ) : actionStatus.includes('Breached') ? (
+              <Badge variant="danger" size="sm">🔴 {actionStatus.replace('Breached - ', '')}</Badge>
+            ) : actionStatus.includes('At Risk') ? (
+              <Badge variant="warning" size="sm">⚠️ {actionStatus.replace('At Risk - ', '')}</Badge>
+            ) : (
+              <span className="text-red-600 text-xs font-medium">Overdue</span>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  }
+
   const exportToCSV = () => {
     const headers = [
-      'Order No', 'Current Stage', 'SLA Status', 'Pending Status', 'Brand', 'Country', 
+      'Order No', 'Current Stage', 'SLA Status', 'Actionable Status', 'Fulfilment Status', 'Brand', 'Country', 
       'Order Date', 'Processed Time', 'Shipped Time', 'Delivered Time', 'Pending Hours'
     ]
     
@@ -621,7 +745,8 @@ function OrdersContent() {
       order.order_no,
       order.current_stage,
       order.sla_status,
-      order.pending_status,
+      getActionableStatus(order),
+      order.current_stage === 'Delivered' ? 'Fulfilled' : 'Not Fulfilled',
       order.brand_name,
       order.country_code,
       format(new Date(order.order_date), 'yyyy-MM-dd'),
@@ -644,7 +769,9 @@ function OrdersContent() {
     window.URL.revokeObjectURL(url)
   }
 
-  const activeFiltersCount = Object.values(filters).filter(value => value !== '').length
+  const activeFiltersCount = Object.entries(filters).filter(([key, value]) => 
+    key !== 'search' && value !== ''
+  ).length
 
   // Sorting functions
   const handleSort = (key: SortConfig['key']) => {
@@ -722,10 +849,77 @@ function OrdersContent() {
       <span className="text-blue-600 text-xs font-bold">↑</span> : 
       <span className="text-blue-600 text-xs font-bold">↓</span>
   }
+  
+  // Generate dynamic title and subtitle based on selected filters
+  const getDynamicTitle = () => {
+    // Generate title and subtitle based on filters
+    if (filters.brand && filters.country) {
+      return {
+        title: `${filters.brand.toUpperCase()} • ${filters.country.toUpperCase()}`,
+        subtitle: 'Orders Management'
+      }
+    }
+    
+    if (filters.brand) {
+      return {
+        title: `${filters.brand.toUpperCase()} Orders`,
+        subtitle: 'Order Management & Tracking'
+      }
+    }
+    
+    if (filters.country) {
+      return {
+        title: `${filters.country.toUpperCase()} Operations`,
+        subtitle: 'Orders Management'
+      }
+    }
 
+    // Check for other active filters to create meaningful titles
+    if (filters.sla_status) {
+      return {
+        title: `${filters.sla_status} Orders`,
+        subtitle: 'SLA Performance Management'
+      }
+    }
+
+    if (filters.stage) {
+      return {
+        title: `${filters.stage} Orders`,
+        subtitle: 'Stage-Specific Management'
+      }
+    }
+
+    if (filters.pending_status === 'pending') {
+      return {
+        title: 'Action Required Orders',
+        subtitle: 'Overdue Order Management'
+      }
+    }
+
+    if (filters.fulfilment_status === 'fulfilled') {
+      return {
+        title: 'Fulfilled Orders',
+        subtitle: 'Completed Order Management'
+      }
+    }
+
+    if (filters.fulfilment_status === 'not_fulfilled') {
+      return {
+        title: 'Pending Fulfilment',
+        subtitle: 'Active Order Management'
+      }
+    }
+    
+    return {
+      title: 'Orders Management',
+      subtitle: 'Monitor and manage order processing'
+    }
+  }
+
+  const { title, subtitle } = getDynamicTitle();
   return (
-    <div className="min-h-screen bg-gray-50 p-6">
-      <div className="max-w-7xl mx-auto space-y-6">
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800 p-6 transition-colors duration-200">
+      <div className="mx-auto space-y-6 container px-4 py-8">
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-center gap-4">
@@ -735,121 +929,237 @@ function OrdersContent() {
               </Button>
             </Link>
             <div>
-              <h1 className="text-2xl font-bold text-gray-900">Orders Management</h1>
-              <p className="text-sm text-gray-600 mt-1">
+              <h1 className="text-2xl font-bold text-gray-900 dark:text-white">{title}</h1>
+              <p className="text-sm text-gray-600 dark:text-gray-300 mt-1">
+                {subtitle}
+              </p>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                 {!loading && `${pagination.total} orders found`}
               </p>
             </div>
           </div>
           <div className="flex gap-3">
-            <Button 
-              variant="outline" 
-              onClick={() => setShowFilters(!showFilters)}
-              icon={<Filter className="h-4 w-4" />}
-            >
-              Filters {activeFiltersCount > 0 && `(${activeFiltersCount})`}
-            </Button>
-            <Button 
-              onClick={exportToCSV} 
+            
+            {/* Export Button */}
+            <button
+              onClick={exportToCSV}
               disabled={orders.length === 0}
-              icon={<Download className="h-4 w-4" />}
+              className="p-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm text-gray-700 dark:text-gray-300 hover:bg-white dark:hover:bg-gray-700 hover:shadow-md transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+              aria-label="Export to CSV"
             >
-              Export
-            </Button>
+              <Download className="h-5 w-5" />
+            </button>
+            
+            {/* Theme Toggle */}
+            <button
+              onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+              className="p-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm text-gray-700 dark:text-gray-300 hover:bg-white dark:hover:bg-gray-700 hover:shadow-md transition-all duration-200"
+              aria-label="Toggle theme"
+              suppressHydrationWarning
+            >
+              {mounted && theme === 'dark' ? (
+                <Sun className="h-5 w-5" />
+              ) : (
+                <Moon className="h-5 w-5" />
+              )}
+            </button>
           </div>
         </div>
 
-                 {/* Quick Search & Filters */}
-         <Card className="p-6">
-           <div className="space-y-4">
-             {/* Search */}
-             <div>
-               <label className="block text-sm font-medium text-gray-700 mb-2">Search Orders</label>
-               <Input
-                 placeholder="Search by order number..."
-                 value={filters.search}
-                 onChange={(e) => handleFilterChange('search', e.target.value)}
-                 icon={<Search />}
-               />
-             </div>
-             
-             {/* Quick Filters */}
-             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-               <div>
-                 <label className="block text-sm font-medium text-gray-700 mb-2">SLA Status</label>
-                 <Select
-                   value={filters.sla_status}
-                   onChange={(value) => handleFilterChange('sla_status', value)}
-                   options={slaStatusOptions}
-                   placeholder="All SLA Status"
-                 />
-               </div>
-               <div>
-                 <label className="block text-sm font-medium text-gray-700 mb-2">Current Milestone</label>
-                 <Select
-                   value={filters.stage}
-                   onChange={(value) => handleFilterChange('stage', value)}
-                   options={stageOptions}
-                   placeholder="All Stages"
-                 />
-               </div>
-               <div>
-                 <label className="block text-sm font-medium text-gray-700 mb-2">Fulfilment Status</label>
-                 <Select
-                   value={filters.pending_status}
-                   onChange={(value) => handleFilterChange('pending_status', value)}
-                   options={pendingStatusOptions}
-                   placeholder="All Fulfilment Status"
-                 />
-               </div>
-             </div>
-           </div>
-         </Card>
+                 {/* Quick Search & Filters - Minimal Design like Dashboard */}
+         <div className="bg-white/60 dark:bg-gray-800/60 backdrop-blur-sm rounded-xl border border-gray-200 dark:border-gray-700 p-4 shadow-sm">
+          <div className="flex items-center gap-3 text-sm flex-wrap">
+            {/* Quick Date Filters */}
+            <div className="flex gap-1">
+              <button
+                onClick={() => {
+                  const today = format(new Date(), 'yyyy-MM-dd')
+                  setFilters(prev => ({ ...prev, from_date: today, to_date: today }))
+                }}
+                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                  filters.from_date === format(new Date(), 'yyyy-MM-dd') && filters.to_date === format(new Date(), 'yyyy-MM-dd')
+                    ? 'bg-blue-100 text-blue-700 border border-blue-200 dark:bg-blue-900 dark:text-blue-200 dark:border-blue-700' 
+                    : 'bg-gray-50 text-gray-600 border border-gray-200 hover:bg-gray-100 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-600 dark:hover:bg-gray-700'
+                }`}
+              >
+                Today
+              </button>
+              <button
+                onClick={() => {
+                  const yesterday = format(new Date(Date.now() - 24 * 60 * 60 * 1000), 'yyyy-MM-dd')
+                  setFilters(prev => ({ ...prev, from_date: yesterday, to_date: yesterday }))
+                }}
+                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                  filters.from_date === format(new Date(Date.now() - 24 * 60 * 60 * 1000), 'yyyy-MM-dd') && filters.to_date === format(new Date(Date.now() - 24 * 60 * 60 * 1000), 'yyyy-MM-dd')
+                    ? 'bg-blue-100 text-blue-700 border border-blue-200 dark:bg-blue-900 dark:text-blue-200 dark:border-blue-700' 
+                    : 'bg-gray-50 text-gray-600 border border-gray-200 hover:bg-gray-100 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-600 dark:hover:bg-gray-700'
+                }`}
+              >
+                Yesterday
+              </button>
+              <button
+                onClick={() => {
+                  const lastWeekStart = format(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000), 'yyyy-MM-dd')
+                  const today = format(new Date(), 'yyyy-MM-dd')
+                  setFilters(prev => ({ ...prev, from_date: lastWeekStart, to_date: today }))
+                }}
+                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                  filters.from_date === format(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000), 'yyyy-MM-dd') && filters.to_date === format(new Date(), 'yyyy-MM-dd')
+                    ? 'bg-blue-100 text-blue-700 border border-blue-200 dark:bg-blue-900 dark:text-blue-200 dark:border-blue-700' 
+                    : 'bg-gray-50 text-gray-600 border border-gray-200 hover:bg-gray-100 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-600 dark:hover:bg-gray-700'
+                }`}
+              >
+                Last 7 Days
+              </button>
+            </div>
+
+            {/* Date Inputs */}
+            <input
+              type="date"
+              value={filters.from_date}
+              onChange={(e) => handleFilterChange('from_date', e.target.value)}
+              className="px-2 py-1 text-xs border border-gray-200 rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+            />
+            <span className="text-gray-400 text-xs">to</span>
+            <input
+              type="date"
+              value={filters.to_date}
+              onChange={(e) => handleFilterChange('to_date', e.target.value)}
+              className="px-2 py-1 text-xs border border-gray-200 rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+            />
+
+            {/* Search */}
+            <input
+              type="text"
+              placeholder="Search orders..."
+              value={filters.search}
+              onChange={(e) => handleFilterChange('search', e.target.value)}
+              className="px-2 py-1 text-xs border border-gray-200 rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white placeholder-gray-400"
+            />
+
+            {/* SLA Status */}
+            <select
+              value={filters.sla_status}
+              onChange={(e) => handleFilterChange('sla_status', e.target.value)}
+              className="px-2 py-1 text-xs border border-gray-200 rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+            >
+              <option value="">All SLA Status</option>
+              {slaStatusOptions.map(option => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+
+            {/* Stage */}
+            <select
+              value={filters.stage}
+              onChange={(e) => handleFilterChange('stage', e.target.value)}
+              className="px-2 py-1 text-xs border border-gray-200 rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+            >
+              <option value="">All Stages</option>
+              {stageOptions.map(option => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+
+            {/* Pending Status */}
+            <select
+              value={filters.pending_status}
+              onChange={(e) => handleFilterChange('pending_status', e.target.value)}
+              className="px-2 py-1 text-xs border border-gray-200 rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+            >
+              <option value="">All Status</option>
+              {pendingStatusOptions.map(option => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+
+            {/* Advanced Filters Toggle */}
+            <Button 
+              variant="outline" 
+              size="sm"
+              onClick={() => setShowFilters(!showFilters)}
+              icon={<Filter className="h-3 w-3" />}
+              className="text-xs"
+            >
+              Advanced {activeFiltersCount > 0 && `(${activeFiltersCount})`}
+            </Button>
+
+            {/* Clear Filters */}
+            {activeFiltersCount > 0 && (
+              <button
+                onClick={clearFilters}
+                className="px-2 py-1 text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+              >
+                Clear All
+              </button>
+            )}
+          </div>
+        </div>
 
         {/* Advanced Filters */}
         {showFilters && (
-          <Card className="p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-medium text-gray-900">Advanced Filters</h3>
-              <Button variant="ghost" size="sm" onClick={clearFilters}>
+          <div className="bg-white/60 dark:bg-gray-800/60 backdrop-blur-sm rounded-xl border border-gray-200 dark:border-gray-700 p-4 shadow-sm">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-medium text-gray-900 dark:text-white">Advanced Filters</h3>
+              <button 
+                onClick={clearFilters}
+                className="text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+              >
                 Clear All
-              </Button>
+              </button>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Brand</label>
-                <Input
-                  placeholder="e.g., Victoria's Secret"
-                  value={filters.brand}
-                  onChange={(e) => handleFilterChange('brand', e.target.value)}
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Country</label>
-                <Input
-                  placeholder="e.g., TH, MY, SG"
-                  value={filters.country}
-                  onChange={(e) => handleFilterChange('country', e.target.value)}
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">From Date</label>
-                                 <Input
-                   type="date"
-                   value={filters.from_date}
-                   onChange={(e) => handleFilterChange('from_date', e.target.value)}
-                 />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">To Date</label>
-                                 <Input
-                   type="date"
-                   value={filters.to_date}
-                   onChange={(e) => handleFilterChange('to_date', e.target.value)}
-                 />
-              </div>
+            <div className="flex items-center gap-3 text-sm flex-wrap">
+              {/* Brand Select */}
+              <select
+                value={filters.brand}
+                onChange={(e) => handleFilterChange('brand', e.target.value)}
+                disabled={loadingFilterOptions}
+                className={`px-2 py-1 text-xs border border-gray-200 rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white ${loadingFilterOptions ? "opacity-50" : ""}`}
+              >
+                <option value="">{loadingFilterOptions ? "Loading..." : "All Brands"}</option>
+                {filterOptions.brands.map(brand => (
+                  <option key={brand.code} value={brand.code}>
+                    {brand.name}
+                  </option>
+                ))}
+              </select>
+
+              {/* Country Select */}
+              <select
+                value={filters.country}
+                onChange={(e) => handleFilterChange('country', e.target.value)}
+                disabled={loadingFilterOptions}
+                className={`px-2 py-1 text-xs border border-gray-200 rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white ${loadingFilterOptions ? "opacity-50" : ""}`}
+              >
+                <option value="">{loadingFilterOptions ? "Loading..." : "All Countries"}</option>
+                {filterOptions.countries.map(country => (
+                  <option key={country.code} value={country.code}>
+                    {country.name}
+                  </option>
+                ))}
+              </select>
+
+              {/* Fulfilment Status */}
+              <select
+                value={filters.fulfilment_status}
+                onChange={(e) => handleFilterChange('fulfilment_status', e.target.value)}
+                className="px-2 py-1 text-xs border border-gray-200 rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+              >
+                <option value="">All Fulfilment</option>
+                {fulfilmentStatusOptions.map(option => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
             </div>
-          </Card>
+          </div>
         )}
 
         {/* Results Summary */}
@@ -1027,18 +1337,14 @@ function OrdersContent() {
                         </div>
                       </TableCell>
 
-                      {/* SLA Status */}
+                      {/* SLA Status with Actionable Information */}
                       <TableCell>
-                        {order.current_stage === 'Not Processed' ? (
-                          <span className="text-sm text-gray-500">N/A</span>
-                        ) : (
-                          getSLABadge(order.sla_status)
-                        )}
+                        {getEnhancedSLABadge(order)}
                       </TableCell>
 
                       {/* Fulfilment Status */}
                       <TableCell>
-                        {getFulfilmentBadge(order)}
+                        {getEnhancedFulfilmentBadge(order)}
                       </TableCell>
 
                       {/* Timeline */}

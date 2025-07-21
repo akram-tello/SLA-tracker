@@ -71,12 +71,12 @@ export function StageBreakdown() {
   // Helper function to get stage color
   const getStageColor = (stage: string) => {
     switch (stage.toLowerCase()) {
-      case 'not processed': return 'bg-red-100 text-red-800 border-red-200'
-      case 'processing': return 'bg-gray-100 text-gray-800 border-gray-200'
-      case 'processed': return 'bg-blue-100 text-blue-800 border-blue-200'
-      case 'shipped': return 'bg-yellow-100 text-yellow-800 border-yellow-200'
-      case 'delivered': return 'bg-green-100 text-green-800 border-green-200'
-      default: return 'bg-gray-100 text-gray-800 border-gray-200'
+      case 'not processed': return 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300 border-red-200 dark:border-red-700'
+      case 'processing': return 'bg-gray-100 dark:bg-gray-700/30 text-gray-800 dark:text-gray-300 border-gray-200 dark:border-gray-600'
+      case 'processed': return 'bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-300 border-blue-200 dark:border-blue-700'
+      case 'shipped': return 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-800 dark:text-yellow-300 border-yellow-200 dark:border-yellow-700'
+      case 'delivered': return 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300 border-green-200 dark:border-green-700'
+      default: return 'bg-gray-100 dark:bg-gray-700/30 text-gray-800 dark:text-gray-300 border-gray-200 dark:border-gray-600'
     }
   }
 
@@ -104,7 +104,7 @@ export function StageBreakdown() {
               href={getDrillDownUrl(stage.stage)}
               className="group block"
             >
-              <div className="flex justify-between items-center p-4 border rounded-lg hover:shadow-md transition-shadow cursor-pointer group-hover:border-blue-300">
+              <div className="flex justify-between items-center p-4 border rounded-xl hover:shadow-lg transition-all duration-200 cursor-pointer group-hover:border-blue-300 dark:group-hover:border-blue-600 bg-white/50 dark:bg-gray-800/50 backdrop-blur-sm border-gray-200 dark:border-gray-700">
                 <div className="flex-1">
                   <div className="flex items-center gap-3 mb-2">
                     <span className={`px-3 py-1 rounded-full text-sm font-medium border ${getStageColor(stage.stage)}`}>

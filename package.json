@@ -15,7 +15,8 @@
     "etl:monitor": "./scripts/monitor-etl.sh",
     "etl:sync": "curl -X POST ${ETL_API_URL:-http://localhost:3000}/api/v1/etl/sync",
     "etl:status": "curl ${ETL_API_URL:-http://localhost:3000}/api/v1/etl/status",
-    "etl:health": "curl ${ETL_API_URL:-http://localhost:3000}/api/v1/dashboard/health"
+    "etl:health": "curl ${ETL_API_URL:-http://localhost:3000}/api/v1/dashboard/health",
+    "etl:cleanup": "curl ${ETL_API_URL:-http://localhost:3000}/api/v1/etl/cleanup"
   },
       "dependencies": {
       "apexcharts": "^4.0.0",

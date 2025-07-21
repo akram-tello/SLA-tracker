@@ -203,13 +203,13 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} showHeader={false} size="3xl">
-      <div className="w-full max-h-[90vh] bg-white rounded-lg shadow-xl overflow-hidden">
+      <div className="w-full max-h-[90vh] bg-white dark:bg-gray-800 rounded-lg shadow-xl overflow-hidden transition-colors duration-200">
         {/* Header */}
-        <div className="bg-white border-b border-gray-200 p-6">
+        <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 p-6">
           <div className="flex items-center justify-between">
             <div>
-              <h2 className="text-2xl font-semibold text-gray-900">Order Details</h2>
-              <p className="text-gray-600 mt-1">{orderDetails.order_no}</p>
+              <h2 className="text-2xl font-semibold text-gray-900 dark:text-white">Order Details</h2>
+              <p className="text-gray-600 dark:text-gray-300 mt-1">{orderDetails.order_no}</p>
             </div>
             <div className="flex items-center gap-3">
               <div className="text-right">
@@ -224,7 +224,7 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
         </div>
 
         {/* Tabs */}
-        <div className="border-b border-gray-200 bg-gray-50">
+        <div className="border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50">
           <div className="flex">
             {tabs.map((tab) => {
               const Icon = tab.icon;
@@ -234,8 +234,8 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
                   onClick={() => setActiveTab(tab.id)}
                   className={`flex items-center gap-2 px-6 py-3 text-sm font-medium transition-colors ${
                     activeTab === tab.id
-                      ? 'text-gray-900 border-b-2 border-gray-900 bg-white'
-                      : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
+                      ? 'text-gray-900 dark:text-white border-b-2 border-gray-900 dark:border-blue-400 bg-white dark:bg-gray-800'
+                      : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800'
                   }`}
                 >
                   <Icon className="w-4 h-4" />
