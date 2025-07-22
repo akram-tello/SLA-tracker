@@ -49,3 +49,75 @@ body {
   color: rgb(249 250 251);
   background: rgb(17 24 39);
 }
+
+/* Chart text color overrides for dark mode */
+.dark .apexcharts-legend-text {
+  color: #d1d5db !important;
+}
+
+.dark .apexcharts-datalabel-label {
+  color: #d1d5db !important;
+}
+
+.dark .apexcharts-datalabel-value {
+  color: #ffffff !important;
+}
+
+.dark .apexcharts-tooltip {
+  color: #d1d5db !important;
+}
+
+.dark .apexcharts-title-text {
+  color: #d1d5db !important;
+}
+
+.dark .apexcharts-subtitle-text {
+  color: #9ca3af !important;
+}
+
+.dark .apexcharts-xaxis-label {
+  color: #d1d5db !important;
+}
+
+.dark .apexcharts-yaxis-label {
+  color: #d1d5db !important;
+}
+
+.dark .apexcharts-legend-marker {
+  border-color: #374151 !important;
+}
+
+/* Radial chart specific overrides */
+.dark .apexcharts-radialbar-label {
+  color: #d1d5db !important;
+}
+
+.dark .apexcharts-radialbar-label-name {
+  color: #d1d5db !important;
+}
+
+.dark .apexcharts-radialbar-label-value {
+  color: #ffffff !important;
+}
+
+/* More specific overrides for radial chart text */
+.dark .apexcharts-radialbar .apexcharts-datalabel-label {
+  color: #d1d5db !important;
+}
+
+.dark .apexcharts-radialbar .apexcharts-datalabel-value {
+  color: #ffffff !important;
+}
+
+/* Override any inline styles */
+.dark .apexcharts-radialbar text {
+  fill: #d1d5db !important;
+}
+
+.dark .apexcharts-radialbar .apexcharts-datalabel-value text {
+  fill: #ffffff !important;
+}
+
+.dark .apexcharts-radialbar .apexcharts-datalabel-label text {
+  fill: #d1d5db !important;
+}

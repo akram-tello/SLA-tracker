@@ -23,7 +23,7 @@ export async function GET(request: NextRequest) {
 
     let tables = (tableRows as { TABLE_NAME: string }[]).map(row => row.TABLE_NAME);
     
-    // Apply brand/country filters to table selection (same logic as orders page)
+    // Apply brand/country filters to table selection  
     if (brand || country) {
       tables = tables.filter(tableName => {
         const parts = tableName.replace('orders_', '').split('_');
@@ -65,7 +65,6 @@ export async function GET(request: NextRequest) {
           on_time_orders: 0,
           on_risk_orders: 0,
           breached_orders: 0,
-          // NEW: Action Required + SLA Status + Stage combinations
           action_required_breached_processed: 0,
           action_required_breached_shipped: 0,
           action_required_breached_delivered: 0,
@@ -76,6 +75,7 @@ export async function GET(request: NextRequest) {
           action_required_on_time_shipped: 0,
           action_required_on_time_delivered: 0,
           fulfilled_orders: 0,
+          fulfilled_breached_orders: 0,
           completion_rate: 0,
           pending_orders: 0,
           at_risk_pending_orders: 0,
@@ -91,7 +91,7 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // Build WHERE conditions (same logic as orders page)
+    // Build WHERE conditions  
     const whereConditions: string[] = [];
     const params: (string | number)[] = [];
 
@@ -100,16 +100,16 @@ export async function GET(request: NextRequest) {
       params.push(fromDate, toDate);
     }
 
-    // Only include CONFIRMED orders by default (same as orders page)
+    // Only include CONFIRMED orders by default  
     whereConditions.push('confirmation_status = ?');
     params.push('CONFIRMED');
 
-    // Filter out "Not Processed" orders (same as orders page) 
+    // Filter out "Not Processed" orders   
     whereConditions.push('NOT (processed_time IS NULL AND shipped_time IS NULL AND delivered_time IS NULL)');
 
     const whereClause = whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : '';
 
-    // Helper function for parsing TAT strings to minutes (same as orders page)
+    // Helper function for parsing TAT strings to minutes  
     const parseTATToMinutes = (tatField: string) => `
       COALESCE(
         CASE WHEN ${tatField} REGEXP '[0-9]+[ ]*d' THEN 
@@ -124,7 +124,7 @@ export async function GET(request: NextRequest) {
       )
     `;
 
-    // SLA Status calculation (same logic as orders page)
+    // SLA Status calculation  
     const getSLAStatusCase = () => {
       return `
         CASE
@@ -179,7 +179,7 @@ export async function GET(request: NextRequest) {
 
     const slaStatusCase = getSLAStatusCase();
 
-    // Pending status calculation (same as orders page)
+    // Pending status calculation  
     const getPendingStatusCase = () => {
       return `
         CASE 
@@ -310,7 +310,21 @@ export async function GET(request: NextRequest) {
       o.sla_status === 'On Time' && o.current_stage === 'Delivered'
     ).length;
     
-    const fulfilledOrders = orderData.filter(o => o.current_stage === 'Delivered').length;
+    // Calculate fulfilled orders by SLA status
+    const fulfilledOnTimeOrders = orderData.filter(o => 
+      o.current_stage === 'Delivered' && o.sla_status === 'On Time'
+    ).length;
+    
+    const fulfilledAtRiskOrders = orderData.filter(o => 
+      o.current_stage === 'Delivered' && o.sla_status === 'At Risk'
+    ).length;
+    
+    const fulfilledBreachedOrders = orderData.filter(o => 
+      o.current_stage === 'Delivered' && o.sla_status === 'Breached'
+    ).length;
+    
+    // Fulfilled orders that are on time or at risk (excluding breached)
+    const fulfilledOnTimeAndAtRiskOrders = fulfilledOnTimeOrders + fulfilledAtRiskOrders;
     
     const pendingOrders = orderData.filter(o => o.pending_status === 'pending').length;
 
@@ -401,7 +415,8 @@ export async function GET(request: NextRequest) {
         action_required_on_time_processed: actionRequiredOnTimeProcessed,
         action_required_on_time_shipped: actionRequiredOnTimeShipped,
         action_required_on_time_delivered: actionRequiredOnTimeDelivered,
-        fulfilled_orders: fulfilledOrders,
+        fulfilled_orders: fulfilledOnTimeAndAtRiskOrders, // Only on time and at risk fulfilled orders
+        fulfilled_breached_orders: fulfilledBreachedOrders,
         completion_rate: totalOrders > 0 ? Math.round((onTimeOrders / totalOrders) * 100 * 10) / 10 : 0,
         pending_orders: pendingOrders,
         at_risk_pending_orders: orderData.filter(o => o.pending_status === 'pending' && o.sla_status === 'At Risk').length,

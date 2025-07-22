@@ -35,6 +35,18 @@ export function StagePerformanceChart() {
     setChartKey(prev => prev + 1)
   }
 
+  // Helper function to get stage color based on stage breakdown colors
+  const getStageColor = (stage: string) => {
+    switch (stage.toLowerCase()) {
+      case 'not processed': return '#EF4444' // red-500
+      case 'processing': return '#6B7280' // gray-500
+      case 'processed': return '#3B82F6' // blue-500
+      case 'shipped': return '#F59E0B' // yellow-500/amber-500
+      case 'delivered': return '#10B981' // green-500
+      default: return '#6B7280' // gray-500
+    }
+  }
+
   // Calculate total completion rates for donut chart
   const completionData = useMemo(() => {
     const totalOrders = stageKpis.reduce((sum, stage) => sum + stage.total_orders, 0)
@@ -62,15 +74,15 @@ export function StagePerformanceChart() {
       type: 'donut' as const,
       height: 400,
       animations: {
-        enabled: false
+        enabled: true
       }
     },
     labels: ['On Time', 'At Risk', 'Breached'],
-    colors: ['#10B981', '#F59E0B', '#EF4444'],
+    colors: ['#10B981', '#F59E0B', '#EF4444'], // green-500, yellow-500, red-500
     legend: {
       position: 'bottom' as const,
       labels: {
-        colors: '#6B7280'
+        colors: '#374151' // gray-700 for light mode, will be overridden by dark mode CSS
       }
     },
     plotOptions: {
@@ -82,7 +94,7 @@ export function StagePerformanceChart() {
             total: {
               show: true,
               label: 'Total Orders',
-              color: '#6B7280',
+              color: '#374151', // gray-700 for light mode
               formatter: () => completionData.totalOrders.toLocaleString()
             }
           }
@@ -93,6 +105,9 @@ export function StagePerformanceChart() {
       enabled: true,
       formatter: function(val: number) {
         return (typeof val === 'number' && !isNaN(val)) ? val.toFixed(1) + '%' : '0.0%'
+      },
+      style: {
+        colors: ['#ffffff'] 
       }
     },
     tooltip: {
@@ -121,13 +136,14 @@ export function StagePerformanceChart() {
     return (typeof rate === 'number' && !isNaN(rate)) ? rate : 0
   })
   const radialLabels = stageKpis.map(stage => stage.stage)
+  const radialColors = stageKpis.map(stage => getStageColor(stage.stage))
 
   const radialOptions = {
     chart: {
       type: 'radialBar' as const,
       height: 400,
       animations: {
-        enabled: false
+        enabled: true
       }
     },
     plotOptions: {
@@ -135,13 +151,17 @@ export function StagePerformanceChart() {
         dataLabels: {
           name: {
             fontSize: '12px',
-            color: '#6B7280'
+            color: '#374151' // gray-700 for light mode
           },
           value: {
-            fontSize: '14px',
-            fontWeight: 'bold',
-            formatter: function(val: number) {
-              return (typeof val === 'number' && !isNaN(val)) ? val.toFixed(1) + '%' : '0.0%'
+            show: true,
+          },
+          tooltip: {
+            formatter: function (val: number, opts: { series: number[]; seriesIndex: number }) {
+              const actualValue = opts.series[opts.seriesIndex];
+              return (typeof actualValue === 'number' && !isNaN(actualValue)) 
+                ? actualValue.toFixed(1) + '%' 
+                : '0.0%';
             }
           }
         },
@@ -151,12 +171,12 @@ export function StagePerformanceChart() {
       }
     },
     labels: radialLabels,
-    colors: ['#10B981', '#3B82F6', '#8B5CF6', '#06B6D4'],
+    colors: radialColors,
     legend: {
       show: true,
       position: 'bottom' as const,
       labels: {
-        colors: '#6B7280'
+        colors: '#374151' 
       }
     },
     responsive: [{

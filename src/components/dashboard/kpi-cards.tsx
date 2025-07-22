@@ -27,7 +27,7 @@ interface KPICardProps {
 function KPICard({ title, value, percentage, icon, color, href, description }: KPICardProps) {
   return (
     <Link href={href} className="group block">
-      <Card className="p-6 hover:shadow-lg transition-all duration-200 cursor-pointer group-hover:border-blue-300 dark:group-hover:border-blue-600">
+      <Card className="p-6 hover:shadow-lg transition-all duration-200 cursor-pointer group-hover:border-blue-300 dark:group-hover:border-blue-600 h-full">
         <div className="flex items-center justify-between">
           <div className="flex-1">
             <div className="flex items-center gap-2 mb-2">
@@ -72,7 +72,7 @@ export function KPICards({ section = "all" }: { section?: "overview" | "action-r
   if (loading) {
     const cardCount = section === "overview" ? 5 : section === "action-required" ? 9 : 14;
     return (
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-6">
         {[...Array(cardCount)].map((_, i) => (
           <Card key={i} className="p-6 animate-pulse">
             <div className="space-y-3">
@@ -180,8 +180,17 @@ export function KPICards({ section = "all" }: { section?: "overview" | "action-r
       percentage: data.total_orders > 0 ? (data.fulfilled_orders / data.total_orders) * 100 : 0,
       icon: <Package className="h-4 w-4 text-green-600 dark:text-green-400" />,
       color: "bg-green-100 dark:bg-green-900/30",
-      href: buildFilteredUrl({ fulfilment_status: 'fulfilled' }),
-      description: "Orders completed and delivered"
+      href: buildFilteredUrl({ fulfilment_status: 'fulfilled', sla_status: 'On Time,At Risk' }),
+      description: "Completed orders (On Time & At Risk)"
+    },
+    {
+      title: "Fulfilled Orders but Breached",
+      value: data.fulfilled_breached_orders || 0,
+      percentage: data.total_orders > 0 ? ((data.fulfilled_breached_orders || 0) / data.total_orders) * 100 : 0,
+      icon: <PackageX className="h-4 w-4 text-red-600 dark:text-red-400" />,
+      color: "bg-red-100 dark:bg-red-900/30",
+      href: buildFilteredUrl({ fulfilment_status: 'fulfilled', sla_status: 'Breached' }),
+      description: "Completed orders that breached SLA"
     }
   ]
 
@@ -266,7 +275,7 @@ export function KPICards({ section = "all" }: { section?: "overview" | "action-r
     return (
       <div>
         <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Overview</h3>
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-6">
           {kpiCards.map((kpi, index) => (
             <KPICard key={index} {...kpi} />
           ))}
@@ -296,7 +305,7 @@ export function KPICards({ section = "all" }: { section?: "overview" | "action-r
       {/* Main KPI Grid - Overview */}
       <div>
         <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Overview</h3>
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-6">
           {kpiCards.map((kpi, index) => (
             <KPICard key={index} {...kpi} />
           ))}

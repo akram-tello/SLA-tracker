@@ -57,6 +57,7 @@ export interface KPISummary {
   action_required_on_time_shipped: number;
   action_required_on_time_delivered: number;
   fulfilled_orders: number;
+  fulfilled_breached_orders: number;
   // Existing pending metrics
   pending_orders: number;
   at_risk_pending_orders: number;
