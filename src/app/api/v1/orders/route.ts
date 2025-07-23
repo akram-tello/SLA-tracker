@@ -19,6 +19,8 @@ export async function GET(request: NextRequest) {
       from_date: searchParams.get('from_date') || undefined,
       to_date: searchParams.get('to_date') || undefined,
       confirmation_status: searchParams.get('confirmation_status') || undefined,
+      fulfilment_status: searchParams.get('fulfilment_status') || undefined,
+      kpi_mode: searchParams.get('kpi_mode') || undefined,
     });
 
     const db = await getAnalyticsDb();
@@ -90,8 +92,19 @@ export async function GET(request: NextRequest) {
     }
 
     if (filters.from_date && filters.to_date) {
-      whereConditions.push('DATE(placed_time) BETWEEN ? AND ?');
-      params.push(filters.from_date, filters.to_date);
+      if (filters.kpi_mode) {
+        // KPI mode: Filter by status events within date range (same logic as dashboard)
+        whereConditions.push(`(
+          (processed_time IS NOT NULL AND DATE(processed_time) BETWEEN ? AND ?) OR 
+          (shipped_time IS NOT NULL AND DATE(shipped_time) BETWEEN ? AND ?) OR 
+          (delivered_time IS NOT NULL AND DATE(delivered_time) BETWEEN ? AND ?)
+        )`);
+        params.push(filters.from_date, filters.to_date, filters.from_date, filters.to_date, filters.from_date, filters.to_date);
+      } else {
+        // Normal mode: Filter by placed_time (existing logic)
+        whereConditions.push('DATE(placed_time) BETWEEN ? AND ?');
+        params.push(filters.from_date, filters.to_date);
+      }
     }
 
     // only include CONFIRMED orders by default
@@ -106,6 +119,14 @@ export async function GET(request: NextRequest) {
     // Filter out "Not Processed" orders from UI unless explicitly requested
     if (filters.stage !== 'Not Processed') {
       whereConditions.push('NOT (processed_time IS NULL AND shipped_time IS NULL AND delivered_time IS NULL)');
+    }
+
+    // Add fulfilment_status filtering (for KPI compatibility)
+    if (filters.fulfilment_status) {
+      if (filters.fulfilment_status === 'fulfilled') {
+        // Fulfilled orders are those that are delivered
+        whereConditions.push('delivered_time IS NOT NULL');
+      }
     }
 
     // Add stage filtering based on current stage of orders
@@ -290,7 +311,18 @@ export async function GET(request: NextRequest) {
         END as pending_hours
       `;
       
-      const slaFilter = filters.sla_status ? `AND (${slaStatusCase}) = ?` : '';
+      // Handle comma-separated SLA status values (e.g., "On Time,At Risk")
+      let slaFilter = '';
+      if (filters.sla_status) {
+        const slaValues = filters.sla_status.split(',').map(s => s.trim());
+        if (slaValues.length === 1) {
+          slaFilter = `AND (${slaStatusCase}) = ?`;
+        } else {
+          const placeholders = slaValues.map(() => '?').join(',');
+          slaFilter = `AND (${slaStatusCase}) IN (${placeholders})`;
+        }
+      }
+      
       const pendingFilter = filters.pending_status ? `AND (${pendingStatusCase}) = ?` : '';
       
       const tableQueries = tables.map(table => `
@@ -325,7 +357,8 @@ export async function GET(request: NextRequest) {
     tables.forEach(() => {
       countParams.push(...params);
       if (filters.sla_status) {
-        countParams.push(filters.sla_status);
+        const slaValues = filters.sla_status.split(',').map(s => s.trim());
+        countParams.push(...slaValues);
       }
       if (filters.pending_status) {
         countParams.push(filters.pending_status);
@@ -343,7 +376,8 @@ export async function GET(request: NextRequest) {
     tables.forEach(() => {
       dataParams.push(...params);
       if (filters.sla_status) {
-        dataParams.push(filters.sla_status);
+        const slaValues = filters.sla_status.split(',').map(s => s.trim());
+        dataParams.push(...slaValues);
       }
       if (filters.pending_status) {
         dataParams.push(filters.pending_status);

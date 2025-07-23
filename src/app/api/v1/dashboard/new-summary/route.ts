@@ -12,7 +12,7 @@ export async function GET(request: NextRequest) {
     const fromDate = searchParams.get('from_date');
     const toDate = searchParams.get('to_date');
 
-    console.log('Dashboard API params:', { brand, country, fromDate, toDate });
+    console.log('New Dashboard API params:', { brand, country, fromDate, toDate });
 
     // Get available order tables
     const [tableRows] = await db.execute(`
@@ -91,46 +91,12 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // Build WHERE conditions for Total Orders (placed_time filter)
-    const totalOrdersWhereConditions: string[] = [];
-    const totalOrdersParams: (string | number)[] = [];
-
-    if (fromDate && toDate) {
-      totalOrdersWhereConditions.push('DATE(placed_time) BETWEEN ? AND ?');
-      totalOrdersParams.push(fromDate, toDate);
+    // Parameters for timeline events queries
+    if (!fromDate || !toDate) {
+      return NextResponse.json({
+        error: 'Date range is required for timeline-based filtering'
+      }, { status: 400 });
     }
-
-    // Only include CONFIRMED orders by default  
-    totalOrdersWhereConditions.push('confirmation_status = ?');
-    totalOrdersParams.push('CONFIRMED');
-
-    // Filter out "Not Processed" orders   
-    totalOrdersWhereConditions.push('NOT (processed_time IS NULL AND shipped_time IS NULL AND delivered_time IS NULL)');
-
-    const totalOrdersWhereClause = totalOrdersWhereConditions.length > 0 ? `WHERE ${totalOrdersWhereConditions.join(' AND ')}` : '';
-
-    // Build WHERE conditions for Status-based KPIs (status events within date range)
-    const statusWhereConditions: string[] = [];
-    const statusParams: (string | number)[] = [];
-
-    if (fromDate && toDate) {
-      // Orders that have any status event (processed, shipped, or delivered) within the date range
-      statusWhereConditions.push(`(
-        (processed_time IS NOT NULL AND DATE(processed_time) BETWEEN ? AND ?) OR 
-        (shipped_time IS NOT NULL AND DATE(shipped_time) BETWEEN ? AND ?) OR 
-        (delivered_time IS NOT NULL AND DATE(delivered_time) BETWEEN ? AND ?)
-      )`);
-      statusParams.push(fromDate, toDate, fromDate, toDate, fromDate, toDate);
-    }
-
-    // Only include CONFIRMED orders by default  
-    statusWhereConditions.push('confirmation_status = ?');
-    statusParams.push('CONFIRMED');
-
-    // Filter out "Not Processed" orders   
-    statusWhereConditions.push('NOT (processed_time IS NULL AND shipped_time IS NULL AND delivered_time IS NULL)');
-
-    const statusWhereClause = statusWhereConditions.length > 0 ? `WHERE ${statusWhereConditions.join(' AND ')}` : '';
 
     // Helper function for parsing TAT strings to minutes  
     const parseTATToMinutes = (tatField: string) => `
@@ -147,60 +113,7 @@ export async function GET(request: NextRequest) {
       )
     `;
 
-    // SLA Status calculation  
-    const getSLAStatusCase = () => {
-      return `
-        CASE
-          -- For delivered orders, check if delivery was on time
-          WHEN o.delivered_time IS NOT NULL AND o.delivered_tat IS NOT NULL THEN
-            CASE 
-              WHEN ${parseTATToMinutes('o.delivered_tat')} > ${parseTATToMinutes('tc.delivered_tat')} THEN 'Breached'
-              WHEN ${parseTATToMinutes('o.delivered_tat')} > (${parseTATToMinutes('tc.delivered_tat')} * tc.risk_pct / 100) THEN 'At Risk'
-              ELSE 'On Time'
-            END
-          
-          -- For shipped but not delivered orders, check CURRENT status: should it be delivered by now?
-          WHEN o.shipped_time IS NOT NULL AND o.delivered_time IS NULL THEN
-            CASE 
-              -- If it's past the delivery deadline, it's breached regardless of past performance
-              WHEN TIMESTAMPDIFF(MINUTE, o.placed_time, NOW()) > ${parseTATToMinutes('tc.delivered_tat')} THEN 'Breached'
-              WHEN TIMESTAMPDIFF(MINUTE, o.placed_time, NOW()) > (${parseTATToMinutes('tc.delivered_tat')} * tc.risk_pct / 100) THEN 'At Risk'
-              ELSE 'On Time'
-            END
-          
-          -- For processed but not shipped orders, check CURRENT status: should it be shipped by now?
-          WHEN o.processed_time IS NOT NULL AND o.shipped_time IS NULL THEN
-            CASE 
-              -- If it's past the shipping deadline, it's breached regardless of how fast processing was
-              WHEN TIMESTAMPDIFF(MINUTE, o.placed_time, NOW()) > ${parseTATToMinutes('tc.shipped_tat')} THEN 'Breached'
-              WHEN TIMESTAMPDIFF(MINUTE, o.placed_time, NOW()) > (${parseTATToMinutes('tc.shipped_tat')} * tc.risk_pct / 100) THEN 'At Risk'
-              ELSE 'On Time'
-            END
-          
-          -- For orders not yet processed, check if they should be processed by now
-          WHEN o.processed_time IS NULL AND o.shipped_time IS NULL AND o.delivered_time IS NULL THEN
-            CASE 
-              WHEN TIMESTAMPDIFF(MINUTE, o.placed_time, NOW()) > ${parseTATToMinutes('tc.processed_tat')} THEN 'Breached'
-              WHEN TIMESTAMPDIFF(MINUTE, o.placed_time, NOW()) > (${parseTATToMinutes('tc.processed_tat')} * tc.risk_pct / 100) THEN 'At Risk'
-              ELSE 'On Time'
-            END
-            
-          -- For orders that skip processed stage (go straight from placed to shipped)
-          WHEN o.processed_time IS NULL AND o.shipped_time IS NOT NULL THEN
-            CASE 
-              -- Check if it should be delivered by now
-              WHEN TIMESTAMPDIFF(MINUTE, o.placed_time, NOW()) > ${parseTATToMinutes('tc.delivered_tat')} THEN 'Breached'
-              WHEN TIMESTAMPDIFF(MINUTE, o.placed_time, NOW()) > (${parseTATToMinutes('tc.delivered_tat')} * tc.risk_pct / 100) THEN 'At Risk'
-              ELSE 'On Time'
-            END
-            
-          -- Default case for edge scenarios
-          ELSE 'Unknown'
-        END
-    `;
-    };
 
-    const slaStatusCase = getSLAStatusCase();
 
     // Pending status calculation  
     const getPendingStatusCase = () => {
@@ -237,138 +150,265 @@ export async function GET(request: NextRequest) {
 
     const pendingStatusCase = getPendingStatusCase();
 
-    // Build query for Total Orders (placed_time filter)
-    const buildTotalOrdersQuery = () => {
-      const baseSelect = `COUNT(*) as total_count`;
-      
+    // Build query for Timeline Events (each event is tracked separately)
+    const buildTimelineEventsQuery = () => {
       const tableQueries = tables.map(table => `
-        SELECT ${baseSelect}
+        -- Processed events within date range
+        SELECT 
+          o.order_no,
+          o.brand_name,
+          o.country_code,
+          DATE(o.processed_time) as event_date,
+          'Processed' as timeline_stage,
+          -- SLA status at the time of processing
+          CASE 
+            WHEN ${parseTATToMinutes('o.processed_tat')} > ${parseTATToMinutes('tc.processed_tat')} THEN 'Breached'
+            WHEN ${parseTATToMinutes('o.processed_tat')} > (${parseTATToMinutes('tc.processed_tat')} * tc.risk_pct / 100) THEN 'At Risk'
+            ELSE 'On Time'
+          END as sla_status,
+          ${pendingStatusCase} as pending_status
         FROM ${table} o
         LEFT JOIN tat_config tc ON o.brand_name COLLATE utf8mb4_unicode_ci = tc.brand_name COLLATE utf8mb4_unicode_ci 
                                  AND o.country_code COLLATE utf8mb4_unicode_ci = tc.country_code COLLATE utf8mb4_unicode_ci
-        ${totalOrdersWhereClause}
+        WHERE o.processed_time IS NOT NULL 
+          AND DATE(o.processed_time) BETWEEN ? AND ?
+          AND o.confirmation_status = ?
+        
+        UNION ALL
+        
+        -- Shipped events within date range  
+        SELECT 
+          o.order_no,
+          o.brand_name,
+          o.country_code,
+          DATE(o.shipped_time) as event_date,
+          'Shipped' as timeline_stage,
+          -- SLA status at the time of shipping
+          CASE 
+            WHEN ${parseTATToMinutes('o.shipped_tat')} > ${parseTATToMinutes('tc.shipped_tat')} THEN 'Breached'
+            WHEN ${parseTATToMinutes('o.shipped_tat')} > (${parseTATToMinutes('tc.shipped_tat')} * tc.risk_pct / 100) THEN 'At Risk'
+            ELSE 'On Time'
+          END as sla_status,
+          ${pendingStatusCase} as pending_status
+        FROM ${table} o
+        LEFT JOIN tat_config tc ON o.brand_name COLLATE utf8mb4_unicode_ci = tc.brand_name COLLATE utf8mb4_unicode_ci 
+                                 AND o.country_code COLLATE utf8mb4_unicode_ci = tc.country_code COLLATE utf8mb4_unicode_ci
+        WHERE o.shipped_time IS NOT NULL 
+          AND DATE(o.shipped_time) BETWEEN ? AND ?
+          AND o.confirmation_status = ?
+        
+        UNION ALL
+        
+        -- Delivered events within date range
+        SELECT 
+          o.order_no,
+          o.brand_name,
+          o.country_code,
+          DATE(o.delivered_time) as event_date,
+          'Delivered' as timeline_stage,
+          -- SLA status at the time of delivery
+          CASE 
+            WHEN ${parseTATToMinutes('o.delivered_tat')} > ${parseTATToMinutes('tc.delivered_tat')} THEN 'Breached'
+            WHEN ${parseTATToMinutes('o.delivered_tat')} > (${parseTATToMinutes('tc.delivered_tat')} * tc.risk_pct / 100) THEN 'At Risk'
+            ELSE 'On Time'
+          END as sla_status,
+          ${pendingStatusCase} as pending_status
+        FROM ${table} o
+        LEFT JOIN tat_config tc ON o.brand_name COLLATE utf8mb4_unicode_ci = tc.brand_name COLLATE utf8mb4_unicode_ci 
+                                 AND o.country_code COLLATE utf8mb4_unicode_ci = tc.country_code COLLATE utf8mb4_unicode_ci
+        WHERE o.delivered_time IS NOT NULL 
+          AND DATE(o.delivered_time) BETWEEN ? AND ?
+          AND o.confirmation_status = ?
       `);
     
       return tableQueries.join(' UNION ALL ');
     };
 
-    // Build query for Status-based KPIs (status events within date range)
-    const buildStatusKPIsQuery = () => {
-      const baseSelect = `
-        o.order_no,
-        o.brand_name,
-        o.country_code,
-        DATE(o.placed_time) as order_date,
-        CASE 
-          WHEN o.delivered_time IS NOT NULL THEN 'Delivered'
-          WHEN o.shipped_time IS NOT NULL AND o.delivered_time IS NULL THEN 'Shipped'
-          WHEN o.processed_time IS NOT NULL AND o.shipped_time IS NULL THEN 'Processed'
-          WHEN o.processed_time IS NULL AND o.shipped_time IS NULL AND o.delivered_time IS NULL THEN 'Not Processed'
-          ELSE 'Processing'
-        END as current_stage,
-        ${slaStatusCase} as sla_status,
-        ${pendingStatusCase} as pending_status
-      `;
-      
-      const tableQueries = tables.map(table => `
-        SELECT ${baseSelect}
-        FROM ${table} o
-        LEFT JOIN tat_config tc ON o.brand_name COLLATE utf8mb4_unicode_ci = tc.brand_name COLLATE utf8mb4_unicode_ci 
-                                 AND o.country_code COLLATE utf8mb4_unicode_ci = tc.country_code COLLATE utf8mb4_unicode_ci
-        ${statusWhereClause}
-      `);
+    // Get Timeline Events data  
+    const timelineEventsQuery = buildTimelineEventsQuery();
     
-      return tableQueries.join(' UNION ALL ');
-    };
-
-    // Get Total Orders count (placed within date range)
-    const totalOrdersQuery = buildTotalOrdersQuery();
-    
-    const totalOrdersQueryParams: (string | number)[] = [];
+    const timelineQueryParams: (string | number)[] = [];
     tables.forEach(() => {
-      totalOrdersQueryParams.push(...totalOrdersParams);
+      // Each table needs the date range and confirmation status for each of the 3 events (processed, shipped, delivered)
+      timelineQueryParams.push(fromDate, toDate, 'CONFIRMED'); // Processed events
+      timelineQueryParams.push(fromDate, toDate, 'CONFIRMED'); // Shipped events  
+      timelineQueryParams.push(fromDate, toDate, 'CONFIRMED'); // Delivered events
     });
 
-    console.log('Executing total orders query...');
-    const [totalOrdersRows] = await db.execute(totalOrdersQuery, totalOrdersQueryParams);
-    const totalOrdersCounts = totalOrdersRows as Array<{ total_count: number }>;
-    const totalOrders = totalOrdersCounts.reduce((sum, row) => sum + row.total_count, 0);
-
-    // Get Status-based KPI data (status events within date range)
-    const statusKPIsQuery = buildStatusKPIsQuery();
+    console.log('=== TIMELINE EVENTS QUERY DEBUG ===');
+    console.log('Query Parameters:', { fromDate, toDate, brand, country });
+    console.log('Tables found:', tables);
     
-    const statusKPIsQueryParams: (string | number)[] = [];
-    tables.forEach(() => {
-      statusKPIsQueryParams.push(...statusParams);
-    });
-
-    console.log('Executing status KPIs query...');
-    const [statusKPIsRows] = await db.execute(statusKPIsQuery, statusKPIsQueryParams);
-    const orderData = statusKPIsRows as Array<{
+    // First, let's check what data actually exists in the table
+    console.log('\n=== DATABASE DIAGNOSTICS ===');
+    
+    // Check table structure
+    console.log('Checking table structure...');
+    const [columnsResult] = await db.execute(`DESCRIBE ${tables[0]}`);
+    console.log('Table columns:', columnsResult);
+    
+    // Check total row count
+    const [countResult] = await db.execute(`SELECT COUNT(*) as total_rows FROM ${tables[0]}`);
+    console.log('Total rows in table:', countResult);
+    
+    // Check sample data - first 3 rows
+    const [sampleResult] = await db.execute(`
+      SELECT order_no, placed_time, processed_time, shipped_time, delivered_time, 
+             confirmation_status, brand_name, country_code 
+      FROM ${tables[0]} 
+      LIMIT 3
+    `);
+    console.log('Sample data (first 3 rows):', sampleResult);
+    
+    // Check date ranges in the data
+    const [dateRangeResult] = await db.execute(`
+      SELECT 
+        MIN(DATE(placed_time)) as min_placed_date,
+        MAX(DATE(placed_time)) as max_placed_date,
+        MIN(DATE(processed_time)) as min_processed_date,
+        MAX(DATE(processed_time)) as max_processed_date,
+        MIN(DATE(shipped_time)) as min_shipped_date,
+        MAX(DATE(shipped_time)) as max_shipped_date,
+        MIN(DATE(delivered_time)) as min_delivered_date,
+        MAX(DATE(delivered_time)) as max_delivered_date
+      FROM ${tables[0]}
+      WHERE processed_time IS NOT NULL OR shipped_time IS NOT NULL OR delivered_time IS NOT NULL
+    `);
+    console.log('Date ranges in data:', dateRangeResult);
+    
+    // Check confirmation_status values
+    const [statusResult] = await db.execute(`
+      SELECT confirmation_status, COUNT(*) as count 
+      FROM ${tables[0]} 
+      GROUP BY confirmation_status
+    `);
+    console.log('Confirmation status distribution:', statusResult);
+    
+    console.log('=== END DIAGNOSTICS ===\n');
+    
+    console.log('Full SQL Query:');
+    console.log(timelineEventsQuery);
+    console.log('Query Parameters Array:', timelineQueryParams);
+    
+    console.log('Executing timeline events query...');
+    const [timelineRows] = await db.execute(timelineEventsQuery, timelineQueryParams);
+    const orderData = timelineRows as Array<{
       order_no: string;
       brand_name: string;
       country_code: string;
-      order_date: string;
-      current_stage: string;
+      event_date: string;
+      timeline_stage: string;
       sla_status: string;
       pending_status: string;
     }>;
 
-    console.log(`Retrieved total orders: ${totalOrders}, status orders: ${orderData.length} from ${tables.length} tables`);
+    console.log('=== RAW QUERY RESULTS ===');
+    console.log(`Total events retrieved: ${orderData.length}`);
+    
+    // Group by timeline_stage for debugging
+    const groupedByStage = orderData.reduce((acc, order) => {
+      if (!acc[order.timeline_stage]) {
+        acc[order.timeline_stage] = [];
+      }
+      acc[order.timeline_stage].push(order);
+      return acc;
+    }, {} as Record<string, typeof orderData>);
+    
+    console.log('Events by Stage:');
+    Object.entries(groupedByStage).forEach(([stage, events]) => {
+      console.log(`\n--- ${stage} Events (${events.length} total) ---`);
+      
+      const slaBreakdown = events.reduce((acc, event) => {
+        acc[event.sla_status] = (acc[event.sla_status] || 0) + 1;
+        return acc;
+      }, {} as Record<string, number>);
+      
+      console.log('SLA Status breakdown:', slaBreakdown);
+      
+      // Show ALL events for Processed stage to debug the missing order
+      if (stage === 'Processed') {
+        console.log('ALL PROCESSED EVENTS:');
+        events.forEach((event, index) => {
+          console.log(`  ${index + 1}. Order ${event.order_no}: ${event.sla_status} on ${event.event_date} (${event.brand_name}, ${event.country_code})`);
+        });
+      } else {
+        // Show first few examples for other stages
+        events.slice(0, 3).forEach(event => {
+          console.log(`  Order ${event.order_no}: ${event.sla_status} on ${event.event_date}`);
+        });
+        
+        if (events.length > 3) {
+          console.log(`  ... and ${events.length - 3} more`);
+        }
+      }
+    });
+
+    console.log(`\n=== EXPECTED vs ACTUAL ===`);
+    const processedEvents = orderData.filter(o => o.timeline_stage === 'Processed');
+    const processedBreached = processedEvents.filter(o => o.sla_status === 'Breached');
+    const processedAtRisk = processedEvents.filter(o => o.sla_status === 'At Risk');
+    
+    console.log(`Processed events: ${processedEvents.length} (expected: 14)`);
+    console.log(`Processed + Breached: ${processedBreached.length} (expected: 4)`);
+    console.log(`Processed + At Risk: ${processedAtRisk.length} (expected: 0)`);
+    
+    console.log('=== END DEBUG ===\n');
+    
+    const totalOrders = orderData.length;
     const onTimeOrders = orderData.filter(o => o.sla_status === 'On Time').length;
     const onRiskOrders = orderData.filter(o => o.sla_status === 'At Risk').length;
     const breachedOrders = orderData.filter(o => o.sla_status === 'Breached').length;
     
-    // NEW: Calculate Action Required + SLA + Stage combinations
+    // Calculate Action Required + SLA + Stage combinations
     const actionRequiredOrders = orderData.filter(o => o.pending_status === 'pending');
     
     const actionRequiredBreachedProcessed = actionRequiredOrders.filter(o => 
-      o.sla_status === 'Breached' && o.current_stage === 'Processed'
+      o.sla_status === 'Breached' && o.timeline_stage === 'Processed'
     ).length;
     
     const actionRequiredBreachedShipped = actionRequiredOrders.filter(o => 
-      o.sla_status === 'Breached' && o.current_stage === 'Shipped'
+      o.sla_status === 'Breached' && o.timeline_stage === 'Shipped'
     ).length;
     
     const actionRequiredBreachedDelivered = actionRequiredOrders.filter(o => 
-      o.sla_status === 'Breached' && o.current_stage === 'Delivered'
+      o.sla_status === 'Breached' && o.timeline_stage === 'Delivered'
     ).length;
     
     const actionRequiredAtRiskProcessed = actionRequiredOrders.filter(o => 
-      o.sla_status === 'At Risk' && o.current_stage === 'Processed'
+      o.sla_status === 'At Risk' && o.timeline_stage === 'Processed'
     ).length;
     
     const actionRequiredAtRiskShipped = actionRequiredOrders.filter(o => 
-      o.sla_status === 'At Risk' && o.current_stage === 'Shipped'
+      o.sla_status === 'At Risk' && o.timeline_stage === 'Shipped'
     ).length;
     
     const actionRequiredAtRiskDelivered = actionRequiredOrders.filter(o => 
-      o.sla_status === 'At Risk' && o.current_stage === 'Delivered'
+      o.sla_status === 'At Risk' && o.timeline_stage === 'Delivered'
     ).length;
     
     const actionRequiredOnTimeProcessed = actionRequiredOrders.filter(o => 
-      o.sla_status === 'On Time' && o.current_stage === 'Processed'
+      o.sla_status === 'On Time' && o.timeline_stage === 'Processed'
     ).length;
     
     const actionRequiredOnTimeShipped = actionRequiredOrders.filter(o => 
-      o.sla_status === 'On Time' && o.current_stage === 'Shipped'
+      o.sla_status === 'On Time' && o.timeline_stage === 'Shipped'
     ).length;
     
     const actionRequiredOnTimeDelivered = actionRequiredOrders.filter(o => 
-      o.sla_status === 'On Time' && o.current_stage === 'Delivered'
+      o.sla_status === 'On Time' && o.timeline_stage === 'Delivered'
     ).length;
     
     // Calculate fulfilled orders by SLA status
     const fulfilledOnTimeOrders = orderData.filter(o => 
-      o.current_stage === 'Delivered' && o.sla_status === 'On Time'
+      o.timeline_stage === 'Delivered' && o.sla_status === 'On Time'
     ).length;
     
     const fulfilledAtRiskOrders = orderData.filter(o => 
-      o.current_stage === 'Delivered' && o.sla_status === 'At Risk'
+      o.timeline_stage === 'Delivered' && o.sla_status === 'At Risk'
     ).length;
     
     const fulfilledBreachedOrders = orderData.filter(o => 
-      o.current_stage === 'Delivered' && o.sla_status === 'Breached'
+      o.timeline_stage === 'Delivered' && o.sla_status === 'Breached'
     ).length;
     
     // Fulfilled orders that are on time or at risk (excluding breached)
@@ -376,13 +416,32 @@ export async function GET(request: NextRequest) {
     
     const pendingOrders = orderData.filter(o => o.pending_status === 'pending').length;
 
-    // Calculate stage breakdown
-    const stageBreakdown = ['Not Processed', 'Processed', 'Shipped', 'Delivered'].map(stage => {
-      const stageOrders = orderData.filter(o => o.current_stage === stage);
-      const stageTotal = stageOrders.length;
-      const stageOnTime = stageOrders.filter(o => o.sla_status === 'On Time').length;
-      const stageOnRisk = stageOrders.filter(o => o.sla_status === 'At Risk').length;
-      const stageBreached = stageOrders.filter(o => o.sla_status === 'Breached').length;
+    // Calculate stage breakdown based on timeline events
+    const stageBreakdown = ['Processed', 'Shipped', 'Delivered'].map(stage => {
+      const stageEvents = orderData.filter(o => o.timeline_stage === stage);
+      const stageTotal = stageEvents.length;
+      const stageOnTime = stageEvents.filter(o => o.sla_status === 'On Time').length;
+      const stageOnRisk = stageEvents.filter(o => o.sla_status === 'At Risk').length;
+      const stageBreached = stageEvents.filter(o => o.sla_status === 'Breached').length;
+      
+      // Debug logging for stage breakdown calculation
+      if (stage === 'Processed') {
+        console.log(`\n=== STAGE BREAKDOWN CALCULATION FOR ${stage} ===`);
+        console.log(`Stage events found: ${stageTotal}`);
+        console.log(`On Time events: ${stageOnTime}`);
+        console.log(`At Risk events: ${stageOnRisk}`);
+        console.log(`Breached events: ${stageBreached}`);
+        console.log(`Total check: ${stageOnTime + stageOnRisk + stageBreached} = ${stageTotal}?`);
+        
+        // Show detailed breakdown
+        const onTimeOrders = stageEvents.filter(o => o.sla_status === 'On Time');
+        const atRiskOrders = stageEvents.filter(o => o.sla_status === 'At Risk');
+        const breachedOrders = stageEvents.filter(o => o.sla_status === 'Breached');
+        
+        console.log('On Time Orders:', onTimeOrders.map(o => o.order_no));
+        console.log('At Risk Orders:', atRiskOrders.map(o => o.order_no));
+        console.log('Breached Orders:', breachedOrders.map(o => o.order_no));
+      }
       
       return {
         stage,
@@ -392,9 +451,14 @@ export async function GET(request: NextRequest) {
         breached: stageBreached,
         completion_rate: stageTotal > 0 ? Math.round((stageOnTime / stageTotal) * 100 * 10) / 10 : 0
       };
-    }).filter(stage => stage.total > 0); // Only include stages with orders
+    }).filter(stage => stage.total > 0); // Only include stages with events
+    
+    console.log('\n=== FINAL STAGE BREAKDOWN ===');
+    stageBreakdown.forEach(stage => {
+      console.log(`${stage.stage}: Total=${stage.total}, OnTime=${stage.on_time}, AtRisk=${stage.on_risk}, Breached=${stage.breached}`);
+    });
 
-    // Calculate chart data (group by date)
+    // Calculate chart data (group by date using the timeline event date)
     const chartDataMap = new Map<string, {
       date: string;
       total_orders: number;
@@ -405,7 +469,7 @@ export async function GET(request: NextRequest) {
     }>();
 
     orderData.forEach(order => {
-      const date = order.order_date;
+      const date = order.event_date;
       if (!chartDataMap.has(date)) {
         chartDataMap.set(date, {
           date,
@@ -453,7 +517,7 @@ export async function GET(request: NextRequest) {
         on_time_orders: onTimeOrders,
         on_risk_orders: onRiskOrders,
         breached_orders: breachedOrders,
-        // NEW: Action Required combinations
+        // Action Required combinations
         action_required_breached_processed: actionRequiredBreachedProcessed,
         action_required_breached_shipped: actionRequiredBreachedShipped,
         action_required_breached_delivered: actionRequiredBreachedDelivered,
@@ -479,7 +543,7 @@ export async function GET(request: NextRequest) {
       stage_kpis: stageKpis
     };
 
-    console.log('Dashboard API response summary:', {
+    console.log('New Dashboard API response summary:', {
       total_orders: response.kpis.total_orders,
       on_time_orders: response.kpis.on_time_orders,
       on_risk_orders: response.kpis.on_risk_orders,
@@ -492,9 +556,9 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(response);
 
   } catch (error) {
-    console.error('Dashboard API error:', error);
+    console.error('New Dashboard API error:', error);
     return NextResponse.json(
-      { error: 'Failed to fetch dashboard data', details: error instanceof Error ? error.message : 'Unknown error' },
+      { error: 'Failed to fetch new dashboard data', details: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }
     );
   }

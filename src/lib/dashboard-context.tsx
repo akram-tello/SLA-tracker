@@ -57,12 +57,21 @@ interface DashboardProviderProps {
 
 // Create a stable default date range to avoid hydration mismatch
 const getDefaultDateRange = () => {
-  // Use today's date to show current day data by default
-  const now = new Date();
-  return {
-    from_date: format(now, 'yyyy-MM-dd'),
-    to_date: format(now, 'yyyy-MM-dd'),
+  // Use today's date as end date and 3 months ago as start date
+  const endDate = new Date(); // Today's date
+  const startDate = new Date();
+  startDate.setMonth(startDate.getMonth() - 3); // 3 months ago
+  
+  const dateRange = {
+    from_date: format(startDate, 'yyyy-MM-dd'),
+    to_date: format(endDate, 'yyyy-MM-dd'),
   };
+  
+  console.log('=== DEFAULT DATE RANGE ===');
+  console.log('Start date (3 months ago):', dateRange.from_date);
+  console.log('End date (today):', dateRange.to_date);
+  
+  return dateRange;
 };
 
 export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children }) => {

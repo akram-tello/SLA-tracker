@@ -51,6 +51,14 @@ export async function GET() {
           endpoint: 'POST /api/v1/etl/sync?brand={brand}&country={country}',
           description: 'Synchronize specific brand/country combination'
         },
+        generate_summary: {
+          endpoint: 'POST /api/v1/etl/generate-summary',
+          description: 'Generate SLA summaries from existing data (without sync)'
+        },
+        generate_summary_specific: {
+          endpoint: 'POST /api/v1/etl/generate-summary?brand={brand}&country={country}',
+          description: 'Generate summaries for specific brand/country from existing data'
+        },
         cleanup_orphaned: {
           endpoint: 'POST /api/v1/etl/cleanup',
           description: 'Clean up orphaned summary data'

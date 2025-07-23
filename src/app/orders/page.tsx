@@ -235,6 +235,9 @@ function OrdersContent() {
     order_status: searchParams.get('order_status') || ''
   }))
   
+  // Get kpi_mode from URL parameters
+  const kpiMode = searchParams.get('kpi_mode') === 'true'
+  
   const [pagination, setPagination] = useState({
     total: 0,
     page: 1,
@@ -343,6 +346,9 @@ function OrdersContent() {
       if (currentFilters.from_date) params.append('from_date', currentFilters.from_date)
       if (currentFilters.to_date) params.append('to_date', currentFilters.to_date)
       if (currentFilters.order_status) params.append('order_status', currentFilters.order_status)
+      
+      // Add kpi_mode parameter if coming from KPI cards
+      if (kpiMode) params.append('kpi_mode', 'true')
 
       const response = await fetch(`/api/v1/orders?${params}`)
       if (!response.ok) throw new Error('Failed to fetch orders')
@@ -1318,8 +1324,8 @@ function OrdersContent() {
                       {/* Order Details */}
                       <TableCell>
                         <div>
-                          <div className="font-semibold text-gray-900">{order.order_no}</div>
-                          <div className="text-xs text-gray-500 mt-1">
+                          <div className="font-semibold text-gray-900 dark:text-white">{order.order_no}</div>
+                          <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                             {format(new Date(order.order_date), 'MMM dd, yyyy, HH:mm a')}
                           </div>
                         </div>
@@ -1332,7 +1338,7 @@ function OrdersContent() {
 
                       {/* Next Milestone */}
                       <TableCell>
-                        <div className="text-sm text-gray-600">
+                        <div className="text-sm text-gray-600 dark:text-gray-300">
                           {getNextMilestone(order.current_stage)}
                         </div>
                       </TableCell>
@@ -1349,7 +1355,7 @@ function OrdersContent() {
 
                       {/* Timeline */}
                       <TableCell>
-                        <div className="space-y-1 text-xs">
+                        <div className="space-y-1 text-xs text-gray-600 dark:text-gray-300">
                           {getTimelineDisplay(order).map((line, index) => {
                             // Check if line contains SLA breach information
                             const hasOverSLA = line.includes('over SLA');
@@ -1363,9 +1369,9 @@ function OrdersContent() {
                                 if (parts.length === 2) {
                                   const overSLAPart = parts[1].split(' over SLA')[0];
                                   return (
-                                    <div key={index} className="text-gray-600">
+                                    <div key={index} className="text-gray-600 dark:text-gray-300">
                                       {parts[0]}
-                                      <span className="text-red-600 font-medium">(was +{overSLAPart} over SLA)</span>
+                                      <span className="text-red-600 dark:text-red-400 font-medium">(was +{overSLAPart} over SLA)</span>
                                     </div>
                                   );
                                 }
@@ -1375,15 +1381,15 @@ function OrdersContent() {
                                 const restOfLine = line.substring(line.indexOf(':') + 1);
                                 
                                 return (
-                                  <div key={index} className="text-gray-600">
-                                    <span className="text-orange-600 font-medium">{stageName}:</span>
+                                  <div key={index} className="text-gray-600 dark:text-gray-300">
+                                    <span className="text-orange-600 dark:text-orange-400 font-medium">{stageName}:</span>
                                     {restOfLine.includes('+') ? (
                                       <>
-                                        <span className="text-orange-600 font-medium">{restOfLine.split('+')[0]}</span>
-                                        <span className="text-red-600 font-medium">+{restOfLine.split('+')[1]}</span>
+                                        <span className="text-orange-600 dark:text-orange-400 font-medium">{restOfLine.split('+')[0]}</span>
+                                        <span className="text-red-600 dark:text-red-400 font-medium">+{restOfLine.split('+')[1]}</span>
                                       </>
                                     ) : (
-                                      <span className="text-orange-600 font-medium">{restOfLine}</span>
+                                      <span className="text-orange-600 dark:text-orange-400 font-medium">{restOfLine}</span>
                                     )}
                                   </div>
                                 );
@@ -1394,14 +1400,14 @@ function OrdersContent() {
                               const restOfLine = line.substring(line.indexOf(':') + 1);
                               
                               return (
-                                <div key={index} className="text-gray-600">
-                                  <span className="text-orange-600 font-medium">{stageName}:</span>
-                                  <span className="text-orange-600 font-medium">{restOfLine}</span>
+                                <div key={index} className="text-gray-600 dark:text-gray-300">
+                                  <span className="text-orange-600 dark:text-orange-400 font-medium">{stageName}:</span>
+                                  <span className="text-orange-600 dark:text-orange-400 font-medium">{restOfLine}</span>
                                 </div>
                               );
                             }
                             return (
-                              <div key={index} className="text-gray-600">
+                              <div key={index} className="text-gray-600 dark:text-gray-300">
                                 {line}
                               </div>
                             );
@@ -1412,7 +1418,7 @@ function OrdersContent() {
                       {/* Brand & Country */}
                       <TableCell>
                         <div>
-                          <div className="font-medium text-gray-900">{order.brand_name?.replace("'s", "'s") || 'N/A'}</div>
+                          <div className="font-medium text-gray-900 dark:text-white">{order.brand_name?.replace("'s", "'s") || 'N/A'}</div>
                           <Badge variant="gray" size="sm">{order.country_code}</Badge>
                         </div>
                       </TableCell>
@@ -1428,7 +1434,7 @@ function OrdersContent() {
         {!loading && pagination.total_pages > 1 && (
           <Card className="p-4">
             <div className="flex items-center justify-between">
-              <div className="text-sm text-gray-600">
+              <div className="text-sm text-gray-600 dark:text-gray-300">
                 Showing {(pagination.page - 1) * pagination.limit + 1} to {Math.min(pagination.page * pagination.limit, pagination.total)} of {pagination.total} orders
               </div>
               <div className="flex items-center gap-2">

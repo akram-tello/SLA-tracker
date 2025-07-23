@@ -21,6 +21,8 @@ export const orderFiltersSchema = z.object({
   from_date: z.string().optional(),
   to_date: z.string().optional(),
   confirmation_status: z.string().optional(),
+  fulfilment_status: z.string().optional(),
+  kpi_mode: z.coerce.boolean().optional().default(false),
 });
 
 export const tatConfigSchema = z.object({

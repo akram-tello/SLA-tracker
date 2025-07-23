@@ -375,7 +375,7 @@ export function SLAChart() {
               </button>
             </div>
           </div>
-          <div className="h-[400px] flex items-center justify-center">
+          <div className="h-[400px] flex items-center justify-center mt-4">
             <div className="animate-pulse">
               <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-48 mb-4"></div>
               <div className="space-y-3">
@@ -396,10 +396,12 @@ export function SLAChart() {
     return (
       <Card className="border-0 shadow-sm">
         <div className="p-6">
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-            SLA Performance by Stage
-          </h3>
-          <div className="text-center py-8">
+          <div className="mb-4">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+              SLA Performance by Stage
+            </h3>
+          </div>
+          <div className="text-center py-8 mt-4">
             <div className="text-red-500 mb-2">
               <svg className="w-12 h-12 mx-auto" fill="currentColor" viewBox="0 0 20 20">
                 <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
@@ -450,7 +452,7 @@ export function SLAChart() {
               </button>
             </div>
           </div>
-          <div className="text-center py-8">
+          <div className="text-center py-8 mt-4">
             <div className="text-gray-400 mb-2">
               <svg className="w-12 h-12 mx-auto" fill="currentColor" viewBox="0 0 20 20">
                 <path fillRule="evenodd" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" clipRule="evenodd" />
@@ -483,17 +485,17 @@ export function SLAChart() {
             >
               <BarChart3 className="h-4 w-4" />
             </button>
-                         <button
-               onClick={toggleChartType}
-               className={`p-2 rounded-lg transition-colors ${
-                 chartType === 'line' 
-                   ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400' 
-                   : 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
-               }`}
-               title="Line Chart"
-             >
-               <TrendingUp className="h-4 w-4" />
-             </button>
+            <button
+              onClick={toggleChartType}
+              className={`p-2 rounded-lg transition-colors ${
+                chartType === 'line' 
+                  ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400' 
+                  : 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
+              }`}
+              title="Line Chart"
+            >
+              <TrendingUp className="h-4 w-4" />
+            </button>
           </div>
         </div>
         <div className="h-[400px]">

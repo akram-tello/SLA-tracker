@@ -67,8 +67,8 @@ export function Filters() {
   return (
     <div className="bg-white/60 dark:bg-gray-800/60 backdrop-blur-sm rounded-xl border border-gray-200 dark:border-gray-700 p-4 shadow-sm">
       <div className="flex items-center gap-3 text-sm">
-      {/* Improved Quick Date Buttons */}
-      <div className="flex gap-1">
+      {/* Quick Date Buttons */}
+      <div className="flex gap-1" style={{ display: 'none' }}>
         <button
           onClick={() => handleQuickDate('today')}
           className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
@@ -103,13 +103,15 @@ export function Filters() {
 
       {/* Date Inputs */}
       <input
+      style={{ display: 'none' }}
         type="date"
         value={fromDate}
         onChange={(e) => setFromDate(e.target.value)}
         className="px-2 py-1 text-xs border border-gray-200 rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
       />
-      <span className="text-gray-400 text-xs">to</span>
+      <span className="text-gray-400 text-xs" style={{ display: 'none' }}>to</span>
       <input
+      style={{ display: 'none' }}
         type="date"
         value={toDate}
         onChange={(e) => setToDate(e.target.value)}
@@ -117,6 +119,7 @@ export function Filters() {
       />
 
       {/* Brand Select */}
+      <span className="text-gray-400 text-xs">Select Brand</span>
       <select
         value={selectedBrand}
         onChange={(e) => setSelectedBrand(e.target.value)}

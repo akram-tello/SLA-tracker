@@ -514,6 +514,15 @@ export class ETLService {
   }
 
   /**
+   * Generate daily summary for a specific table (public method)
+   * Used for generating summaries from existing data without full ETL sync
+   */
+  async generateDailySummaryForTable(targetTable: string, brand: string, country: string): Promise<void> {
+    const analyticsDb = await this.getAnalyticsConnection();
+    return this.generateDailySummary(targetTable, brand, country, analyticsDb);
+  }
+
+  /**
    * Generate daily summary data for dashboard
    */
   private async generateDailySummary(targetTable: string, brand: string, country: string, analyticsDb: Connection): Promise<void> {

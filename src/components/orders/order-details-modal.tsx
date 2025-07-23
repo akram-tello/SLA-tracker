@@ -127,21 +127,21 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
 
   const getStatusColor = (status: string) => {
     switch (status.toLowerCase()) {
-      case 'delivered': return 'text-green-700 bg-green-50 border-green-200';
-      case 'shipped': return 'text-blue-700 bg-blue-50 border-blue-200';
-      case 'processed': return 'text-orange-700 bg-orange-50 border-orange-200';
-      case 'not processed': return 'text-gray-700 bg-gray-50 border-gray-200';
-      default: return 'text-gray-700 bg-gray-50 border-gray-200';
+      case 'delivered': return 'text-green-700 dark:text-green-300 bg-green-50 dark:bg-green-900/30 border-green-200 dark:border-green-700';
+      case 'shipped': return 'text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-900/30 border-blue-200 dark:border-blue-700';
+      case 'processed': return 'text-orange-700 dark:text-orange-300 bg-orange-50 dark:bg-orange-900/30 border-orange-200 dark:border-orange-700';
+      case 'not processed': return 'text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-700/30 border-gray-200 dark:border-gray-600';
+      default: return 'text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-700/30 border-gray-200 dark:border-gray-600';
     }
   };
 
   const getSLAStatusColor = (status: string) => {
     switch (status) {
-      case 'On Time': return 'text-green-700 bg-green-50 border-green-200';
-      case 'At Risk': return 'text-yellow-700 bg-yellow-50 border-yellow-200';
-      case 'Breached': return 'text-red-700 bg-red-50 border-red-200';
-      case 'N/A': return 'text-gray-700 bg-gray-50 border-gray-200';
-      default: return 'text-gray-700 bg-gray-50 border-gray-200';
+      case 'On Time': return 'text-green-700 dark:text-green-300 bg-green-50 dark:bg-green-900/30 border-green-200 dark:border-green-700';
+      case 'At Risk': return 'text-yellow-700 dark:text-yellow-300 bg-yellow-50 dark:bg-yellow-900/30 border-yellow-200 dark:border-yellow-700';
+      case 'Breached': return 'text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-900/30 border-red-200 dark:border-red-700';
+      case 'N/A': return 'text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-700/30 border-gray-200 dark:border-gray-600';
+      default: return 'text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-700/30 border-gray-200 dark:border-gray-600';
     }
   };
 
@@ -168,8 +168,8 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
       <Modal isOpen={isOpen} onClose={onClose} showHeader={false}>
         <div className="flex items-center justify-center p-8">
           <div className="text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-600 mx-auto mb-4"></div>
-            <p className="text-gray-600 text-lg">Loading order details...</p>
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-600 dark:border-gray-400 mx-auto mb-4"></div>
+            <p className="text-gray-600 dark:text-gray-300 text-lg">Loading order details...</p>
           </div>
         </div>
       </Modal>
@@ -182,8 +182,8 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
         <div className="flex items-center justify-center p-8">
           <div className="text-center">
             <XCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
-            <p className="text-red-600 text-lg mb-2">Error loading order details</p>
-            <p className="text-gray-600">{error}</p>
+            <p className="text-red-600 dark:text-red-400 text-lg mb-2">Error loading order details</p>
+            <p className="text-gray-600 dark:text-gray-300">{error}</p>
           </div>
         </div>
       </Modal>
@@ -213,10 +213,10 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
             </div>
             <div className="flex items-center gap-3">
               <div className="text-right">
-                <p className="text-gray-500 text-sm">SLA Status</p>
+                <p className="text-gray-500 dark:text-gray-400 text-sm">SLA Status</p>
                 <div className="flex items-center gap-2 mt-1">
                   {getOverallSLAIcon(orderDetails.overall_sla_status)}
-                  <span className="font-medium text-gray-900">{orderDetails.overall_sla_status}</span>
+                  <span className="font-medium text-gray-900 dark:text-white">{orderDetails.overall_sla_status}</span>
                 </div>
               </div>
             </div>
@@ -252,40 +252,40 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
             <div className="space-y-6">
               {/* Quick Stats */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4 border border-gray-200 dark:border-gray-600">
                   <div className="flex items-center gap-3">
-                    <div className="p-2 bg-gray-200 rounded-lg">
-                      <Package className="w-5 h-5 text-gray-600" />
+                    <div className="p-2 bg-gray-200 dark:bg-gray-600 rounded-lg">
+                      <Package className="w-5 h-5 text-gray-600 dark:text-gray-300" />
                     </div>
                     <div>
-                      <p className="text-gray-600 text-sm">Current Stage</p>
-                      <p className="font-semibold text-gray-900">{orderDetails.current_stage}</p>
+                      <p className="text-gray-600 dark:text-gray-300 text-sm">Current Stage</p>
+                      <p className="font-semibold text-gray-900 dark:text-white">{orderDetails.current_stage}</p>
                     </div>
                   </div>
                 </div>
 
-                <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4 border border-gray-200 dark:border-gray-600">
                   <div className="flex items-center gap-3">
-                    <div className="p-2 bg-gray-200 rounded-lg">
-                      <CreditCard className="w-5 h-5 text-gray-600" />
+                    <div className="p-2 bg-gray-200 dark:bg-gray-600 rounded-lg">
+                      <CreditCard className="w-5 h-5 text-gray-600 dark:text-gray-300" />
                     </div>
                     <div>
-                      <p className="text-gray-600 text-sm">Payment</p>
-                      <p className="font-semibold text-gray-900">
+                      <p className="text-gray-600 dark:text-gray-300 text-sm">Payment</p>
+                      <p className="font-semibold text-gray-900 dark:text-white">
                         {formatCurrency(orderDetails.payment.amount, orderDetails.payment.currency)}
                       </p>
                     </div>
                   </div>
                 </div>
 
-                <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4 border border-gray-200 dark:border-gray-600">
                   <div className="flex items-center gap-3">
-                    <div className="p-2 bg-gray-200 rounded-lg">
-                      <Truck className="w-5 h-5 text-gray-600" />
+                    <div className="p-2 bg-gray-200 dark:bg-gray-600 rounded-lg">
+                      <Truck className="w-5 h-5 text-gray-600 dark:text-gray-300" />
                     </div>
                     <div>
-                      <p className="text-gray-600 text-sm">Carrier</p>
-                      <p className="font-semibold text-gray-900">
+                      <p className="text-gray-600 dark:text-gray-300 text-sm">Carrier</p>
+                      <p className="font-semibold text-gray-900 dark:text-white">
                         {orderDetails.shipping.carrier || 'N/A'}
                       </p>
                     </div>
@@ -294,38 +294,38 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
               </div>
 
               {/* Order Info */}
-              <div className="bg-white rounded-lg border border-gray-200 p-6">
-                <h3 className="text-lg font-semibold mb-4 flex items-center gap-2 text-gray-900">
-                  <Info className="w-5 h-5 text-gray-600" />
+              <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+                <h3 className="text-lg font-semibold mb-4 flex items-center gap-2 text-gray-900 dark:text-white">
+                  <Info className="w-5 h-5 text-gray-600 dark:text-gray-400" />
                   Order Information
                 </h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   <div>
-                    <p className="text-sm text-gray-600 mb-1">Brand</p>
-                    <p className="font-medium text-gray-900">{orderDetails.brand_name}</p>
+                    <p className="text-sm text-gray-600 dark:text-gray-300 mb-1">Brand</p>
+                    <p className="font-medium text-gray-900 dark:text-white">{orderDetails.brand_name}</p>
                   </div>
                   <div>
-                    <p className="text-sm text-gray-600 mb-1">Country</p>
-                    <p className="font-medium text-gray-900">{orderDetails.country_code}</p>
+                    <p className="text-sm text-gray-600 dark:text-gray-300 mb-1">Country</p>
+                    <p className="font-medium text-gray-900 dark:text-white">{orderDetails.country_code}</p>
                   </div>
                   <div>
-                    <p className="text-sm text-gray-600 mb-1">Invoice</p>
-                    <p className="font-medium text-gray-900">{orderDetails.invoice_no}</p>
+                    <p className="text-sm text-gray-600 dark:text-gray-300 mb-1">Invoice</p>
+                    <p className="font-medium text-gray-900 dark:text-white">{orderDetails.invoice_no}</p>
                   </div>
                   <div>
-                    <p className="text-sm text-gray-600 mb-1">Order Status</p>
+                    <p className="text-sm text-gray-600 dark:text-gray-300 mb-1">Order Status</p>
                     <span className={`inline-block px-2 py-1 rounded text-sm font-medium border ${getStatusColor(orderDetails.order_status)}`}>
                       {orderDetails.order_status}
                     </span>
                   </div>
                   <div>
-                    <p className="text-sm text-gray-600 mb-1">Shipping Status</p>
+                    <p className="text-sm text-gray-600 dark:text-gray-300 mb-1">Shipping Status</p>
                     <span className={`inline-block px-2 py-1 rounded text-sm font-medium border ${getStatusColor(orderDetails.shipping_status)}`}>
                       {orderDetails.shipping_status}
                     </span>
                   </div>
                   <div>
-                    <p className="text-sm text-gray-600 mb-1">Confirmation</p>
+                    <p className="text-sm text-gray-600 dark:text-gray-300 mb-1">Confirmation</p>
                     <span className={`inline-block px-2 py-1 rounded text-sm font-medium border ${getStatusColor(orderDetails.confirmation_status)}`}>
                       {orderDetails.confirmation_status}
                     </span>
@@ -334,9 +334,9 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
               </div>
 
               {/* SLA Summary */}
-              <div className="bg-white rounded-lg border border-gray-200 p-6">
-                <h3 className="text-lg font-semibold mb-4 flex items-center gap-2 text-gray-900">
-                  <TrendingUp className="w-5 h-5 text-gray-600" />
+              <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+                <h3 className="text-lg font-semibold mb-4 flex items-center gap-2 text-gray-900 dark:text-white">
+                  <TrendingUp className="w-5 h-5 text-gray-600 dark:text-gray-400" />
                   SLA Performance Summary
                 </h3>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -345,24 +345,24 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
                       key={index}
                       className={`p-4 rounded-lg border ${
                         stage.status === 'Breached' 
-                          ? 'border-red-200 bg-red-50' 
+                          ? 'border-red-200 dark:border-red-700 bg-red-50 dark:bg-red-900/30' 
                           : stage.status === 'At Risk' 
-                          ? 'border-yellow-200 bg-yellow-50' 
+                          ? 'border-yellow-200 dark:border-yellow-700 bg-yellow-50 dark:bg-yellow-900/30' 
                           : stage.status === 'On Time'
-                          ? 'border-green-200 bg-green-50'
-                          : 'border-gray-200 bg-gray-50'
+                          ? 'border-green-200 dark:border-green-700 bg-green-50 dark:bg-green-900/30'
+                          : 'border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700/30'
                       }`}
                     >
                       <div className="flex items-center justify-between mb-2">
-                        <h4 className="font-medium text-gray-900">{stage.stage}</h4>
+                        <h4 className="font-medium text-gray-900 dark:text-white">{stage.stage}</h4>
                         <span className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium border ${getSLAStatusColor(stage.status)}`}>
                           {getSLAIcon(stage.status)}
                           {stage.status}
                         </span>
                       </div>
-                      <p className="text-sm text-gray-600">{stage.actual_time || 'N/A'}</p>
+                      <p className="text-sm text-gray-600 dark:text-gray-300">{stage.actual_time || 'N/A'}</p>
                       {stage.exceeded_by && (
-                        <p className="text-xs text-red-600 font-medium mt-1">
+                        <p className="text-xs text-red-600 dark:text-red-400 font-medium mt-1">
                           +{stage.exceeded_by} over SLA
                         </p>
                       )}
@@ -375,9 +375,9 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
 
           {activeTab === 'sla' && (
             <div className="space-y-6">
-              <div className="bg-white rounded-lg border border-gray-200 p-6">
-                <h3 className="text-lg font-semibold mb-6 flex items-center gap-2 text-gray-900">
-                  <TrendingUp className="w-5 h-5 text-gray-600" />
+              <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+                <h3 className="text-lg font-semibold mb-6 flex items-center gap-2 text-gray-900 dark:text-white">
+                  <TrendingUp className="w-5 h-5 text-gray-600 dark:text-gray-400" />
                   Detailed SLA Analysis by Stage
                 </h3>
                 <div className="space-y-6">
@@ -386,16 +386,16 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
                       key={index} 
                       className={`border rounded-lg p-6 ${
                         stage.status === 'Breached' 
-                          ? 'border-red-200 bg-red-50' 
+                          ? 'border-red-200 dark:border-red-700 bg-red-50 dark:bg-red-900/30' 
                           : stage.status === 'At Risk' 
-                          ? 'border-yellow-200 bg-yellow-50' 
+                          ? 'border-yellow-200 dark:border-yellow-700 bg-yellow-50 dark:bg-yellow-900/30' 
                           : stage.status === 'On Time'
-                          ? 'border-green-200 bg-green-50'
-                          : 'border-gray-200 bg-gray-50'
+                          ? 'border-green-200 dark:border-green-700 bg-green-50 dark:bg-green-900/30'
+                          : 'border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700/30'
                       }`}
                     >
                       <div className="flex items-center justify-between mb-4">
-                        <h4 className="text-xl font-semibold text-gray-900">{stage.stage} Stage</h4>
+                        <h4 className="text-xl font-semibold text-gray-900 dark:text-white">{stage.stage} Stage</h4>
                         <span className={`inline-flex items-center gap-2 px-3 py-1 rounded text-sm font-medium border ${getSLAStatusColor(stage.status)}`}>
                           {getSLAIcon(stage.status)}
                           {stage.status}
@@ -403,33 +403,33 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
                       </div>
                       
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-                        <div className="bg-white rounded-lg p-4 border border-gray-200">
-                          <p className="text-sm text-gray-600 mb-1">Actual Time</p>
-                          <p className="text-xl font-semibold text-gray-900">{stage.actual_time || 'N/A'}</p>
+                        <div className="bg-white dark:bg-gray-700 rounded-lg p-4 border border-gray-200 dark:border-gray-600">
+                          <p className="text-sm text-gray-600 dark:text-gray-300 mb-1">Actual Time</p>
+                          <p className="text-xl font-semibold text-gray-900 dark:text-white">{stage.actual_time || 'N/A'}</p>
                         </div>
-                        <div className="bg-white rounded-lg p-4 border border-gray-200">
-                          <p className="text-sm text-gray-600 mb-1">SLA Threshold</p>
-                          <p className="text-xl font-semibold text-gray-900">{stage.sla_threshold}</p>
+                        <div className="bg-white dark:bg-gray-700 rounded-lg p-4 border border-gray-200 dark:border-gray-600">
+                          <p className="text-sm text-gray-600 dark:text-gray-300 mb-1">SLA Threshold</p>
+                          <p className="text-xl font-semibold text-gray-900 dark:text-white">{stage.sla_threshold}</p>
                         </div>
-                        <div className="bg-white rounded-lg p-4 border border-gray-200">
-                          <p className="text-sm text-gray-600 mb-1">Risk Threshold</p>
-                          <p className="text-xl font-semibold text-gray-900">{stage.risk_threshold}</p>
+                        <div className="bg-white dark:bg-gray-700 rounded-lg p-4 border border-gray-200 dark:border-gray-600">
+                          <p className="text-sm text-gray-600 dark:text-gray-300 mb-1">Risk Threshold</p>
+                          <p className="text-xl font-semibold text-gray-900 dark:text-white">{stage.risk_threshold}</p>
                         </div>
                       </div>
                       
                       {stage.exceeded_by && (
-                        <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
+                        <div className="bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-700 rounded-lg p-4 mb-4">
                           <div className="flex items-center gap-2">
-                            <XCircle className="w-5 h-5 text-red-600" />
-                            <p className="text-red-800 font-medium">
+                            <XCircle className="w-5 h-5 text-red-600 dark:text-red-400" />
+                            <p className="text-red-800 dark:text-red-200 font-medium">
                               Exceeded SLA by: {stage.exceeded_by}
                             </p>
                           </div>
                         </div>
                       )}
                       
-                      <div className="bg-white rounded-lg p-4 border border-gray-200">
-                        <p className="text-gray-700 leading-relaxed">{stage.description}</p>
+                      <div className="bg-white dark:bg-gray-700 rounded-lg p-4 border border-gray-200 dark:border-gray-600">
+                        <p className="text-gray-700 dark:text-gray-300 leading-relaxed">{stage.description}</p>
                       </div>
                     </div>
                   ))}
@@ -439,34 +439,34 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
           )}
 
           {activeTab === 'timeline' && (
-            <div className="bg-white rounded-lg border border-gray-200 p-6">
-              <h3 className="text-lg font-semibold mb-6 flex items-center gap-2 text-gray-900">
-                <Clock className="w-5 h-5 text-gray-600" />
+            <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+              <h3 className="text-lg font-semibold mb-6 flex items-center gap-2 text-gray-900 dark:text-white">
+                <Clock className="w-5 h-5 text-gray-600 dark:text-gray-400" />
                 Order Timeline
               </h3>
               <div className="relative">
-                <div className="absolute left-6 top-0 bottom-0 w-0.5 bg-gray-300"></div>
+                <div className="absolute left-6 top-0 bottom-0 w-0.5 bg-gray-300 dark:bg-gray-600"></div>
                 <div className="space-y-6">
                   <div className="flex items-start">
-                    <div className="w-12 h-12 bg-gray-600 rounded-full flex items-center justify-center mr-6 relative z-10">
+                    <div className="w-12 h-12 bg-gray-600 dark:bg-gray-500 rounded-full flex items-center justify-center mr-6 relative z-10">
                       <Package className="w-6 h-6 text-white" />
                     </div>
-                    <div className="flex-1 bg-gray-50 rounded-lg p-4 border border-gray-200">
-                      <p className="font-semibold text-gray-900">Order Placed</p>
-                      <p className="text-gray-600">{formatDateTime(orderDetails.placed_time)}</p>
+                    <div className="flex-1 bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4 border border-gray-200 dark:border-gray-600">
+                      <p className="font-semibold text-gray-900 dark:text-white">Order Placed</p>
+                      <p className="text-gray-600 dark:text-gray-300">{formatDateTime(orderDetails.placed_time)}</p>
                     </div>
                   </div>
                   
                   {orderDetails.processed_time && (
                     <div className="flex items-start">
-                      <div className="w-12 h-12 bg-gray-600 rounded-full flex items-center justify-center mr-6 relative z-10">
+                      <div className="w-12 h-12 bg-gray-600 dark:bg-gray-500 rounded-full flex items-center justify-center mr-6 relative z-10">
                         <CheckCircle className="w-6 h-6 text-white" />
                       </div>
-                      <div className="flex-1 bg-gray-50 rounded-lg p-4 border border-gray-200">
-                        <p className="font-semibold text-gray-900">Order Processed</p>
-                        <p className="text-gray-600">{formatDateTime(orderDetails.processed_time)}</p>
+                      <div className="flex-1 bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4 border border-gray-200 dark:border-gray-600">
+                        <p className="font-semibold text-gray-900 dark:text-white">Order Processed</p>
+                        <p className="text-gray-600 dark:text-gray-300">{formatDateTime(orderDetails.processed_time)}</p>
                         {orderDetails.processed_tat && (
-                          <p className="text-sm text-gray-500 mt-1">TAT: {orderDetails.processed_tat}</p>
+                          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">TAT: {orderDetails.processed_tat}</p>
                         )}
                       </div>
                     </div>
@@ -474,14 +474,14 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
                   
                   {orderDetails.shipped_time && (
                     <div className="flex items-start">
-                      <div className="w-12 h-12 bg-gray-600 rounded-full flex items-center justify-center mr-6 relative z-10">
+                      <div className="w-12 h-12 bg-gray-600 dark:bg-gray-500 rounded-full flex items-center justify-center mr-6 relative z-10">
                         <Truck className="w-6 h-6 text-white" />
                       </div>
-                      <div className="flex-1 bg-gray-50 rounded-lg p-4 border border-gray-200">
-                        <p className="font-semibold text-gray-900">Order Shipped</p>
-                        <p className="text-gray-600">{formatDateTime(orderDetails.shipped_time)}</p>
+                      <div className="flex-1 bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4 border border-gray-200 dark:border-gray-600">
+                        <p className="font-semibold text-gray-900 dark:text-white">Order Shipped</p>
+                        <p className="text-gray-600 dark:text-gray-300">{formatDateTime(orderDetails.shipped_time)}</p>
                         {orderDetails.shipped_tat && (
-                          <p className="text-sm text-gray-500 mt-1">TAT: {orderDetails.shipped_tat}</p>
+                          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">TAT: {orderDetails.shipped_tat}</p>
                         )}
                       </div>
                     </div>
@@ -489,14 +489,14 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
                   
                   {orderDetails.delivered_time && (
                     <div className="flex items-start">
-                      <div className="w-12 h-12 bg-gray-600 rounded-full flex items-center justify-center mr-6 relative z-10">
+                      <div className="w-12 h-12 bg-gray-600 dark:bg-gray-500 rounded-full flex items-center justify-center mr-6 relative z-10">
                         <CheckCircle className="w-6 h-6 text-white" />
                       </div>
-                      <div className="flex-1 bg-gray-50 rounded-lg p-4 border border-gray-200">
-                        <p className="font-semibold text-gray-900">Order Delivered</p>
-                        <p className="text-gray-600">{formatDateTime(orderDetails.delivered_time)}</p>
+                      <div className="flex-1 bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4 border border-gray-200 dark:border-gray-600">
+                        <p className="font-semibold text-gray-900 dark:text-white">Order Delivered</p>
+                        <p className="text-gray-600 dark:text-gray-300">{formatDateTime(orderDetails.delivered_time)}</p>
                         {orderDetails.delivered_tat && (
-                          <p className="text-sm text-gray-500 mt-1">TAT: {orderDetails.delivered_tat}</p>
+                          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">TAT: {orderDetails.delivered_tat}</p>
                         )}
                       </div>
                     </div>
@@ -509,76 +509,76 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
           {activeTab === 'details' && (
             <div className="space-y-6">
               {/* Payment Information */}
-              <div className="bg-white rounded-lg border border-gray-200 p-6">
-                <h3 className="text-lg font-semibold mb-4 flex items-center gap-2 text-gray-900">
-                  <CreditCard className="w-5 h-5 text-gray-600" />
+              <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+                <h3 className="text-lg font-semibold mb-4 flex items-center gap-2 text-gray-900 dark:text-white">
+                  <CreditCard className="w-5 h-5 text-gray-600 dark:text-gray-400" />
                   Payment Information
                 </h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
-                    <p className="text-sm text-gray-600 mb-1">Card Type</p>
-                    <p className="font-medium text-gray-900">{orderDetails.payment.card_type || 'N/A'}</p>
+                  <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4 border border-gray-200 dark:border-gray-600">
+                    <p className="text-sm text-gray-600 dark:text-gray-300 mb-1">Card Type</p>
+                    <p className="font-medium text-gray-900 dark:text-white">{orderDetails.payment.card_type || 'N/A'}</p>
                   </div>
-                  <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
-                    <p className="text-sm text-gray-600 mb-1">Amount</p>
-                    <p className="font-semibold text-gray-900 text-lg">
+                  <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4 border border-gray-200 dark:border-gray-600">
+                    <p className="text-sm text-gray-600 dark:text-gray-300 mb-1">Amount</p>
+                    <p className="font-semibold text-gray-900 dark:text-white text-lg">
                       {formatCurrency(orderDetails.payment.amount, orderDetails.payment.currency)}
                     </p>
                   </div>
-                  <div className="md:col-span-2 bg-gray-50 rounded-lg p-4 border border-gray-200">
-                    <p className="text-sm text-gray-600 mb-1">Transaction ID</p>
-                    <p className="font-medium text-gray-900 break-all">{orderDetails.payment.transaction_id || 'N/A'}</p>
+                  <div className="md:col-span-2 bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4 border border-gray-200 dark:border-gray-600">
+                    <p className="text-sm text-gray-600 dark:text-gray-300 mb-1">Transaction ID</p>
+                    <p className="font-medium text-gray-900 dark:text-white break-all">{orderDetails.payment.transaction_id || 'N/A'}</p>
                   </div>
                 </div>
               </div>
 
               {/* Shipping Information */}
-              <div className="bg-white rounded-lg border border-gray-200 p-6">
-                <h3 className="text-lg font-semibold mb-4 flex items-center gap-2 text-gray-900">
-                  <Truck className="w-5 h-5 text-gray-600" />
+              <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+                <h3 className="text-lg font-semibold mb-4 flex items-center gap-2 text-gray-900 dark:text-white">
+                  <Truck className="w-5 h-5 text-gray-600 dark:text-gray-400" />
                   Shipping Information
                 </h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
-                    <p className="text-sm text-gray-600 mb-1">Carrier</p>
-                    <p className="font-medium text-gray-900">{orderDetails.shipping.carrier || 'N/A'}</p>
+                  <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4 border border-gray-200 dark:border-gray-600">
+                    <p className="text-sm text-gray-600 dark:text-gray-300 mb-1">Carrier</p>
+                    <p className="font-medium text-gray-900 dark:text-white">{orderDetails.shipping.carrier || 'N/A'}</p>
                   </div>
-                  <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
-                    <p className="text-sm text-gray-600 mb-1">Shipping Method</p>
-                    <p className="font-medium text-gray-900">{orderDetails.shipping.shipping_method || 'N/A'}</p>
+                  <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4 border border-gray-200 dark:border-gray-600">
+                    <p className="text-sm text-gray-600 dark:text-gray-300 mb-1">Shipping Method</p>
+                    <p className="font-medium text-gray-900 dark:text-white">{orderDetails.shipping.shipping_method || 'N/A'}</p>
                   </div>
-                  <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
-                    <p className="text-sm text-gray-600 mb-1">Shipment ID</p>
-                    <p className="font-medium text-gray-900">{orderDetails.shipping.shipment_id || 'N/A'}</p>
+                  <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4 border border-gray-200 dark:border-gray-600">
+                    <p className="text-sm text-gray-600 dark:text-gray-300 mb-1">Shipment ID</p>
+                    <p className="font-medium text-gray-900 dark:text-white">{orderDetails.shipping.shipment_id || 'N/A'}</p>
                   </div>
-                  <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
-                    <p className="text-sm text-gray-600 mb-1">Tracking</p>
+                  <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4 border border-gray-200 dark:border-gray-600">
+                    <p className="text-sm text-gray-600 dark:text-gray-300 mb-1">Tracking</p>
                     {orderDetails.shipping.tracking_url ? (
                       <a 
                         href={orderDetails.shipping.tracking_url} 
                         target="_blank" 
                         rel="noopener noreferrer"
-                        className="inline-flex items-center gap-2 text-blue-600 hover:text-blue-800 font-medium"
+                        className="inline-flex items-center gap-2 text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 font-medium"
                       >
                         Track Package
                         <ExternalLink className="w-4 h-4" />
                       </a>
                     ) : (
-                      <p className="font-medium text-gray-900">N/A</p>
+                      <p className="font-medium text-gray-900 dark:text-white">N/A</p>
                     )}
                   </div>
                 </div>
               </div>
 
               {/* System Information */}
-              <div className="bg-white rounded-lg border border-gray-200 p-6">
-                <h3 className="text-lg font-semibold mb-4 flex items-center gap-2 text-gray-900">
-                  <Shield className="w-5 h-5 text-gray-600" />
+              <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+                <h3 className="text-lg font-semibold mb-4 flex items-center gap-2 text-gray-900 dark:text-white">
+                  <Shield className="w-5 h-5 text-gray-600 dark:text-gray-400" />
                   System Information
                 </h3>
-                <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
-                  <p className="text-sm text-gray-600 mb-1">Last Updated</p>
-                  <p className="font-medium text-gray-900">{formatDate(orderDetails.updated_at)}</p>
+                <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4 border border-gray-200 dark:border-gray-600">
+                  <p className="text-sm text-gray-600 dark:text-gray-300 mb-1">Last Updated</p>
+                  <p className="font-medium text-gray-900 dark:text-white">{formatDate(orderDetails.updated_at)}</p>
                 </div>
               </div>
             </div>

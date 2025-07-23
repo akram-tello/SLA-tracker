@@ -9,9 +9,11 @@ import { DashboardProvider, useDashboard } from '@/lib/dashboard-context';
 
 // Lazy load dashboard components
 import { KPICards } from '@/components/dashboard/kpi-cards';
-import { SLAChart } from '@/components/dashboard/sla-chart';
+// import { SLAChart } from '@/components/dashboard/sla-chart';
+import { SLAChartNew } from '@/components/dashboard/sla-chart-new';
 import { StageBreakdown } from '@/components/dashboard/stage-breakdown';
 import { StagePerformanceChart } from '@/components/dashboard/stage-performance-chart';
+
 import { Filters } from '@/components/dashboard/filters';
 
 // The Card component is now used within individual chart components
@@ -117,17 +119,21 @@ function DashboardContent() {
         {/* 2. Charts Section */}
         <div className="mb-8">
           <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-6">Performance Analytics</h2>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-            {/* Left Column - Stacked Bar Chart */}
-            <div>
-              <SLAChart />
-            </div>
 
-            {/* Right Column - Pie Charts */}
-            <div>
-              <StagePerformanceChart />
-            </div>
+        {/*  Charts with Timeline-based filtering */}
+      <div className="mb-8">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          {/* Left Column - SLA Performance Chart */}
+          <div>
+            <SLAChartNew />
           </div>
+
+          {/* Right Column - Stage Performance Chart */}
+          <div>
+            <StagePerformanceChart />
+          </div>
+        </div>
+      </div>
         </div>
 
         {/* 3. Action Required Section */}

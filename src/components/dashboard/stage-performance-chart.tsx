@@ -3,7 +3,6 @@
 import { useState, useEffect, useMemo } from "react"
 import dynamic from "next/dynamic"
 import { useDashboard } from "@/lib/dashboard-context"
-import { PieChart, BarChart3 } from "lucide-react"
 
 // Dynamically import ReactApexChart to avoid SSR issues
 const ReactApexChart = dynamic(() => import("react-apexcharts"), { ssr: false })
@@ -15,12 +14,8 @@ const Card = ({ children, className = "" }: { children: React.ReactNode; classNa
   </div>
 );
 
-type ChartType = 'donut' | 'radial'
-
 export function StagePerformanceChart() {
   const [mounted, setMounted] = useState(false)
-  const [chartType, setChartType] = useState<ChartType>('donut')
-  const [chartKey, setChartKey] = useState(0)
   const { dashboardData, loading, error } = useDashboard()
 
   useEffect(() => {
@@ -28,24 +23,6 @@ export function StagePerformanceChart() {
   }, [])
 
   const stageKpis = dashboardData?.stage_kpis || []
-
-  // Toggle between chart types
-  const toggleChartType = () => {
-    setChartType(prev => prev === 'donut' ? 'radial' : 'donut')
-    setChartKey(prev => prev + 1)
-  }
-
-  // Helper function to get stage color based on stage breakdown colors
-  const getStageColor = (stage: string) => {
-    switch (stage.toLowerCase()) {
-      case 'not processed': return '#EF4444' // red-500
-      case 'processing': return '#6B7280' // gray-500
-      case 'processed': return '#3B82F6' // blue-500
-      case 'shipped': return '#F59E0B' // yellow-500/amber-500
-      case 'delivered': return '#10B981' // green-500
-      default: return '#6B7280' // gray-500
-    }
-  }
 
   // Calculate total completion rates for donut chart
   const completionData = useMemo(() => {
@@ -56,6 +33,9 @@ export function StagePerformanceChart() {
 
     return {
       totalOrders,
+      totalOnTime,
+      totalOnRisk, 
+      totalBreached,
       onTimePercentage: totalOrders > 0 ? ((totalOnTime / totalOrders) * 100) : 0,
       onRiskPercentage: totalOrders > 0 ? ((totalOnRisk / totalOrders) * 100) : 0,
       breachedPercentage: totalOrders > 0 ? ((totalBreached / totalOrders) * 100) : 0
@@ -93,9 +73,14 @@ export function StagePerformanceChart() {
             show: true,
             total: {
               show: true,
+              showAlways: true,
               label: 'Total Orders',
               color: '#374151', // gray-700 for light mode
-              formatter: () => completionData.totalOrders.toLocaleString()
+              fontSize: '16px',
+              fontWeight: 600,
+              formatter: () => {
+                return `${completionData.totalOrders.toLocaleString()}`
+              }
             }
           }
         }
@@ -112,71 +97,15 @@ export function StagePerformanceChart() {
     },
     tooltip: {
       y: {
-        formatter: function(val: number) {
-          return (typeof val === 'number' && !isNaN(val)) ? val.toFixed(1) + '%' : '0.0%'
+        formatter: function(val: number, opts: { seriesIndex: number }) {
+          if (typeof val !== 'number' || isNaN(val)) return '0 orders (0.0%)'
+          
+          // Get the actual order count based on series index
+          const orderCounts = [completionData.totalOnTime, completionData.totalOnRisk, completionData.totalBreached]
+          const orderCount = orderCounts[opts.seriesIndex] || 0
+          
+          return `${orderCount.toLocaleString()} orders (${val.toFixed(1)}%)`
         }
-      }
-    },
-    responsive: [{
-      breakpoint: 768,
-      options: {
-        chart: {
-          height: 300
-        },
-        legend: {
-          position: 'bottom'
-        }
-      }
-    }]
-  }
-
-  // Radial bar chart configuration
-  const radialSeries = stageKpis.map(stage => {
-    const rate = stage.completion_rate
-    return (typeof rate === 'number' && !isNaN(rate)) ? rate : 0
-  })
-  const radialLabels = stageKpis.map(stage => stage.stage)
-  const radialColors = stageKpis.map(stage => getStageColor(stage.stage))
-
-  const radialOptions = {
-    chart: {
-      type: 'radialBar' as const,
-      height: 400,
-      animations: {
-        enabled: true
-      }
-    },
-    plotOptions: {
-      radialBar: {
-        dataLabels: {
-          name: {
-            fontSize: '12px',
-            color: '#374151' // gray-700 for light mode
-          },
-          value: {
-            show: true,
-          },
-          tooltip: {
-            formatter: function (val: number, opts: { series: number[]; seriesIndex: number }) {
-              const actualValue = opts.series[opts.seriesIndex];
-              return (typeof actualValue === 'number' && !isNaN(actualValue)) 
-                ? actualValue.toFixed(1) + '%' 
-                : '0.0%';
-            }
-          }
-        },
-        hollow: {
-          size: '30%'
-        }
-      }
-    },
-    labels: radialLabels,
-    colors: radialColors,
-    legend: {
-      show: true,
-      position: 'bottom' as const,
-      labels: {
-        colors: '#374151' 
       }
     },
     responsive: [{
@@ -198,16 +127,8 @@ export function StagePerformanceChart() {
         <div className="p-6">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-              Stage Performance Overview
+              Overall Performance Distribution
             </h3>
-            <div className="flex gap-2">
-              <button className="p-2 rounded-lg bg-gray-100 dark:bg-gray-700">
-                <PieChart className="h-4 w-4 text-gray-500 dark:text-gray-400" />
-              </button>
-              <button className="p-2 rounded-lg bg-gray-50 dark:bg-gray-800">
-                <BarChart3 className="h-4 w-4 text-gray-400 dark:text-gray-500" />
-              </button>
-            </div>
           </div>
           <div className="h-[400px] flex items-center justify-center">
             <div className="animate-pulse">
@@ -231,7 +152,7 @@ export function StagePerformanceChart() {
       <Card className="border-0 shadow-sm">
         <div className="p-6">
           <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
-            Stage Performance Overview
+            Overall Performance Distribution
           </h3>
           <div className="text-center py-8">
             <div className="text-red-500 mb-2">
@@ -255,30 +176,8 @@ export function StagePerformanceChart() {
         <div className="p-6">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-              Stage Performance Overview
+              Overall Performance Distribution
             </h3>
-            <div className="flex gap-2">
-              <button
-                onClick={toggleChartType}
-                className={`p-2 rounded-lg transition-colors ${
-                  chartType === 'donut' 
-                    ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400' 
-                    : 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400'
-                }`}
-              >
-                <PieChart className="h-4 w-4" />
-              </button>
-              <button
-                onClick={toggleChartType}
-                className={`p-2 rounded-lg transition-colors ${
-                  chartType === 'radial' 
-                    ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400' 
-                    : 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
-                }`}
-              >
-                <BarChart3 className="h-4 w-4" />
-              </button>
-            </div>
           </div>
           <div className="text-center py-8">
             <div className="text-gray-400 mb-2">
@@ -299,51 +198,16 @@ export function StagePerformanceChart() {
       <div className="p-6">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
-            {chartType === 'donut' ? 'Overall Performance Distribution' : 'Stage Completion Rates'}
+            Overall Performance Distribution
           </h3>
-          <div className="flex gap-2">
-            <button
-              onClick={toggleChartType}
-              className={`p-2 rounded-lg transition-colors ${
-                chartType === 'donut' 
-                  ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400' 
-                  : 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
-              }`}
-              title="Donut Chart"
-            >
-              <PieChart className="h-4 w-4" />
-            </button>
-            <button
-              onClick={toggleChartType}
-              className={`p-2 rounded-lg transition-colors ${
-                chartType === 'radial' 
-                  ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400' 
-                  : 'bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600'
-              }`}
-              title="Radial Chart"
-            >
-              <BarChart3 className="h-4 w-4" />
-            </button>
-          </div>
         </div>
         <div className="h-[400px]">
-          {chartType === 'donut' ? (
-            <ReactApexChart
-              key={`donut-${chartKey}`}
-              options={donutOptions}
-              series={donutSeries}
-              type="donut"
-              height={400}
-            />
-          ) : (
-            <ReactApexChart
-              key={`radial-${chartKey}`}
-              options={radialOptions}
-              series={radialSeries}
-              type="radialBar"
-              height={400}
-            />
-          )}
+          <ReactApexChart
+            options={donutOptions}
+            series={donutSeries}
+            type="donut"
+            height={400}
+          />
         </div>
       </div>
     </Card>

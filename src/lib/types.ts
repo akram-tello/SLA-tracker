@@ -131,6 +131,8 @@ export interface OrderFilters {
   stage?: string;
   from_date?: string;
   to_date?: string;
+  fulfilment_status?: string;
+  kpi_mode?: boolean;
 }
 
 // ETL Configuration and Discovery Types
