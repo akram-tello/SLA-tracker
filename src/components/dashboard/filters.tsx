@@ -6,7 +6,17 @@ import { useDashboard } from "@/lib/dashboard-context"
 import { RefreshCw } from "lucide-react"
 
 export function Filters() {
-  const { filters, setFilters, filterOptions, loadingFilterOptions, refreshData } = useDashboard()
+  const { filters, setFilters, filterOptions, loadingFilterOptions, refreshData, setHasInitialized } = useDashboard()
+  
+  const handleResetFilters = () => {
+    setFilters({
+      from_date: filters.from_date,
+      to_date: filters.to_date,
+      brands: undefined,
+      countries: undefined,
+    })
+    setHasInitialized(false)
+  }
   
   const [fromDate, setFromDate] = useState(filters.from_date)
   const [toDate, setToDate] = useState(filters.to_date)

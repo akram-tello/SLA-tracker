@@ -88,7 +88,8 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
     setError(null);
     
     try {
-      const response = await fetch(`/api/v1/orders/${orderNo}`);
+      const basePath = process.env.NEXT_PUBLIC_BASE_PATH;
+      const response = await fetch(`${basePath}/api/v1/orders/${orderNo}`);
       const data = await response.json();
       
       if (!response.ok) {
@@ -203,9 +204,9 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} showHeader={false} size="3xl">
-      <div className="w-full max-h-[90vh] bg-white dark:bg-gray-800 rounded-lg shadow-xl overflow-hidden transition-colors duration-200">
+      <div className="w-full max-h-[90vh] bg-white dark:bg-zinc-950 rounded-lg shadow-xl overflow-hidden transition-colors duration-200">
         {/* Header */}
-        <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 p-6">
+        <div className="bg-white dark:bg-zinc-950/50 border-b border-gray-200 dark:border-gray-700 p-6">
           <div className="flex items-center justify-between">
             <div>
               <h2 className="text-2xl font-semibold text-gray-900 dark:text-white">Order Details</h2>
@@ -224,7 +225,7 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
         </div>
 
         {/* Tabs */}
-        <div className="border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50">
+        <div className="border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-zinc-950/50">
           <div className="flex">
             {tabs.map((tab) => {
               const Icon = tab.icon;
@@ -234,8 +235,8 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
                   onClick={() => setActiveTab(tab.id)}
                   className={`flex items-center gap-2 px-6 py-3 text-sm font-medium transition-colors ${
                     activeTab === tab.id
-                      ? 'text-gray-900 dark:text-white border-b-2 border-gray-900 dark:border-blue-400 bg-white dark:bg-gray-800'
-                      : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800'
+                      ? 'text-gray-900 dark:text-white border-b-2 border-gray-900 dark:border-blue-400 bg-white dark:bg-zinc-950'
+                      : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-zinc-950'
                   }`}
                 >
                   <Icon className="w-4 h-4" />
@@ -252,19 +253,19 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
             <div className="space-y-6">
               {/* Quick Stats */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4 border border-gray-200 dark:border-gray-600">
+                <div className="bg-gray-50 dark:bg-zinc-950/50 rounded-lg p-4 border border-gray-200 dark:border-gray-600">
                   <div className="flex items-center gap-3">
                     <div className="p-2 bg-gray-200 dark:bg-gray-600 rounded-lg">
                       <Package className="w-5 h-5 text-gray-600 dark:text-gray-300" />
                     </div>
                     <div>
                       <p className="text-gray-600 dark:text-gray-300 text-sm">Current Stage</p>
-                      <p className="font-semibold text-gray-900 dark:text-white">{orderDetails.current_stage}</p>
+                      <p className="font-semibold text-gray-900 dark:text-white">{orderDetails.current_stage === 'Not Processed' ? 'Not Synced to OMS' : orderDetails.current_stage === 'Processed' ? 'OMS Synced' : orderDetails.current_stage}</p>
                     </div>
                   </div>
                 </div>
 
-                <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4 border border-gray-200 dark:border-gray-600">
+                <div className="bg-gray-50 dark:bg-zinc-950/50 rounded-lg p-4 border border-gray-200 dark:border-gray-600">
                   <div className="flex items-center gap-3">
                     <div className="p-2 bg-gray-200 dark:bg-gray-600 rounded-lg">
                       <CreditCard className="w-5 h-5 text-gray-600 dark:text-gray-300" />
@@ -278,7 +279,7 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
                   </div>
                 </div>
 
-                <div className="bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4 border border-gray-200 dark:border-gray-600">
+                <div className="bg-gray-50 dark:bg-zinc-950/50 rounded-lg p-4 border border-gray-200 dark:border-gray-600">
                   <div className="flex items-center gap-3">
                     <div className="p-2 bg-gray-200 dark:bg-gray-600 rounded-lg">
                       <Truck className="w-5 h-5 text-gray-600 dark:text-gray-300" />
@@ -294,7 +295,7 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
               </div>
 
               {/* Order Info */}
-              <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+              <div className="bg-white dark:bg-zinc-950/50 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
                 <h3 className="text-lg font-semibold mb-4 flex items-center gap-2 text-gray-900 dark:text-white">
                   <Info className="w-5 h-5 text-gray-600 dark:text-gray-400" />
                   Order Information
@@ -334,7 +335,7 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
               </div>
 
               {/* SLA Summary */}
-              <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+              <div className="bg-white dark:bg-zinc-950/50 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
                 <h3 className="text-lg font-semibold mb-4 flex items-center gap-2 text-gray-900 dark:text-white">
                   <TrendingUp className="w-5 h-5 text-gray-600 dark:text-gray-400" />
                   SLA Performance Summary
@@ -375,7 +376,7 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
 
           {activeTab === 'sla' && (
             <div className="space-y-6">
-              <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+              <div className="bg-white dark:bg-zinc-950 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
                 <h3 className="text-lg font-semibold mb-6 flex items-center gap-2 text-gray-900 dark:text-white">
                   <TrendingUp className="w-5 h-5 text-gray-600 dark:text-gray-400" />
                   Detailed SLA Analysis by Stage
@@ -395,7 +396,7 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
                       }`}
                     >
                       <div className="flex items-center justify-between mb-4">
-                        <h4 className="text-xl font-semibold text-gray-900 dark:text-white">{stage.stage} Stage</h4>
+                        <h4 className="text-xl font-semibold text-gray-900 dark:text-white">{(stage.stage)} Stage</h4>
                         <span className={`inline-flex items-center gap-2 px-3 py-1 rounded text-sm font-medium border ${getSLAStatusColor(stage.status)}`}>
                           {getSLAIcon(stage.status)}
                           {stage.status}
@@ -403,15 +404,15 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
                       </div>
                       
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-                        <div className="bg-white dark:bg-gray-700 rounded-lg p-4 border border-gray-200 dark:border-gray-600">
+                        <div className="bg-white dark:bg-gray-800/30 rounded-lg p-4 border border-gray-200 dark:border-gray-600">
                           <p className="text-sm text-gray-600 dark:text-gray-300 mb-1">Actual Time</p>
                           <p className="text-xl font-semibold text-gray-900 dark:text-white">{stage.actual_time || 'N/A'}</p>
                         </div>
-                        <div className="bg-white dark:bg-gray-700 rounded-lg p-4 border border-gray-200 dark:border-gray-600">
+                        <div className="bg-white dark:bg-gray-800/30 rounded-lg p-4 border border-gray-200 dark:border-gray-600">
                           <p className="text-sm text-gray-600 dark:text-gray-300 mb-1">SLA Threshold</p>
                           <p className="text-xl font-semibold text-gray-900 dark:text-white">{stage.sla_threshold}</p>
                         </div>
-                        <div className="bg-white dark:bg-gray-700 rounded-lg p-4 border border-gray-200 dark:border-gray-600">
+                        <div className="bg-white dark:bg-gray-800/30 rounded-lg p-4 border border-gray-200 dark:border-gray-600">
                           <p className="text-sm text-gray-600 dark:text-gray-300 mb-1">Risk Threshold</p>
                           <p className="text-xl font-semibold text-gray-900 dark:text-white">{stage.risk_threshold}</p>
                         </div>
@@ -439,7 +440,7 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
           )}
 
           {activeTab === 'timeline' && (
-            <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+            <div className="bg-white dark:bg-zinc-950 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
               <h3 className="text-lg font-semibold mb-6 flex items-center gap-2 text-gray-900 dark:text-white">
                 <Clock className="w-5 h-5 text-gray-600 dark:text-gray-400" />
                 Order Timeline
@@ -463,7 +464,7 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
                         <CheckCircle className="w-6 h-6 text-white" />
                       </div>
                       <div className="flex-1 bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4 border border-gray-200 dark:border-gray-600">
-                        <p className="font-semibold text-gray-900 dark:text-white">Order Processed</p>
+                        <p className="font-semibold text-gray-900 dark:text-white">Order Synced to OMS</p>
                         <p className="text-gray-600 dark:text-gray-300">{formatDateTime(orderDetails.processed_time)}</p>
                         {orderDetails.processed_tat && (
                           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">TAT: {orderDetails.processed_tat}</p>
@@ -509,7 +510,7 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
           {activeTab === 'details' && (
             <div className="space-y-6">
               {/* Payment Information */}
-              <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+              <div className="bg-white dark:bg-zinc-950 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
                 <h3 className="text-lg font-semibold mb-4 flex items-center gap-2 text-gray-900 dark:text-white">
                   <CreditCard className="w-5 h-5 text-gray-600 dark:text-gray-400" />
                   Payment Information
@@ -533,7 +534,7 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
               </div>
 
               {/* Shipping Information */}
-              <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+              <div className="bg-white dark:bg-zinc-950 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
                 <h3 className="text-lg font-semibold mb-4 flex items-center gap-2 text-gray-900 dark:text-white">
                   <Truck className="w-5 h-5 text-gray-600 dark:text-gray-400" />
                   Shipping Information
@@ -571,7 +572,7 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
               </div>
 
               {/* System Information */}
-              <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+              <div className="bg-white dark:bg-zinc-950 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
                 <h3 className="text-lg font-semibold mb-4 flex items-center gap-2 text-gray-900 dark:text-white">
                   <Shield className="w-5 h-5 text-gray-600 dark:text-gray-400" />
                   System Information

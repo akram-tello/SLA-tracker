@@ -15,8 +15,8 @@ export default function RootLayout({
   return (
     <html lang="en" className="h-full" suppressHydrationWarning>
       <body className="h-full">
-        <ThemeProvider attribute="class" defaultTheme="light" enableSystem={false}>
-          <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+        <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false}>
+          <div className="min-h-screen bg-gray-50 dark:bg-black">
             {children}
           </div>
         </ThemeProvider>

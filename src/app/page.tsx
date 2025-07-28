@@ -9,19 +9,17 @@ import { DashboardProvider, useDashboard } from '@/lib/dashboard-context';
 
 // Lazy load dashboard components
 import { KPICards } from '@/components/dashboard/kpi-cards';
-// import { SLAChart } from '@/components/dashboard/sla-chart';
-import { SLAChartNew } from '@/components/dashboard/sla-chart-new';
+import { SLAChart } from '@/components/dashboard/sla-chart';
 import { StageBreakdown } from '@/components/dashboard/stage-breakdown';
 import { StagePerformanceChart } from '@/components/dashboard/stage-performance-chart';
 
 import { Filters } from '@/components/dashboard/filters';
-
-// The Card component is now used within individual chart components
+import { FilterFirstScreen } from '@/components/dashboard/filter-first-screen';
 
 function DashboardContent() {
   const [mounted, setMounted] = useState(false);
   const { theme, setTheme } = useTheme();
-  const { filters, filterOptions } = useDashboard();
+  const { filters, filterOptions, hasSelectedFilters } = useDashboard();
 
   // Ensure theme is mounted to prevent hydration mismatch
   useEffect(() => {
@@ -29,7 +27,7 @@ function DashboardContent() {
   }, []);
 
   const toggleTheme = () => {
-    setTheme(theme === 'dark' ? 'light' : 'dark');
+    setTheme(theme === 'light' ? 'dark' : 'light');
   };
 
   // Generate dynamic title and subtitle based on selected filters
@@ -61,15 +59,20 @@ function DashboardContent() {
     }
     
     return {
-      title: 'SLA Tracker Dashboard',
+      title: 'E-commerce Orders SLA Tracker Dashboard',
       subtitle: 'Monitor order processing performance'
     };
   };
 
   const { title, subtitle } = getDynamicTitle();
 
+  // Show filter-first screen if not initialized
+  if (!hasSelectedFilters) {
+    return <FilterFirstScreen />;
+  }
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800 transition-colors duration-200">
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 dark:from-black dark:to-black transition-colors duration-200">
       <main className="container mx-auto px-4 py-8">
         {/* Page Header */}
         <div className="mb-8 flex justify-between items-center">
@@ -111,33 +114,33 @@ function DashboardContent() {
           <Filters />
         </div>
 
-        {/* 1. Overview Section */}
+        {/* 1. KPIs Section */}
         <div className="mb-8">
           <KPICards section="overview" />
         </div>
 
-        {/* 2. Charts Section */}
-        <div className="mb-8">
+       {/* 2. Charts Section */}
+       <div className="mb-8">
           <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-6">Performance Analytics</h2>
 
         {/*  Charts with Timeline-based filtering */}
-      <div className="mb-8">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          {/* Left Column - SLA Performance Chart */}
-          <div>
-            <SLAChartNew />
-          </div>
+          <div className="mb-8">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+              {/* Left Column - SLA Performance Chart */}
+              <div>
+                <SLAChart />
+              </div>
 
-          {/* Right Column - Stage Performance Chart */}
-          <div>
-            <StagePerformanceChart />
+              {/* Right Column - Stage Performance Chart */}
+              <div>
+                <StagePerformanceChart />
+              </div>
+            </div>
           </div>
         </div>
-      </div>
-        </div>
 
-        {/* 3. Action Required Section */}
-        <div className="mb-8">
+        {/* 3. Action Required KPIs Section */}
+        <div className="mb-8" style={{ display: 'none' }}>
           <KPICards section="action-required" />
         </div>
 

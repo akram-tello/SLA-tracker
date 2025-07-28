@@ -105,7 +105,7 @@ export async function GET(request: NextRequest) {
     totalOrdersParams.push('CONFIRMED');
 
     // Filter out "Not Processed" orders   
-    totalOrdersWhereConditions.push('NOT (processed_time IS NULL AND shipped_time IS NULL AND delivered_time IS NULL)');
+    // totalOrdersWhereConditions.push('NOT (processed_time IS NULL AND shipped_time IS NULL AND delivered_time IS NULL)');
 
     const totalOrdersWhereClause = totalOrdersWhereConditions.length > 0 ? `WHERE ${totalOrdersWhereConditions.join(' AND ')}` : '';
 
@@ -114,13 +114,9 @@ export async function GET(request: NextRequest) {
     const statusParams: (string | number)[] = [];
 
     if (fromDate && toDate) {
-      // Orders that have any status event (processed, shipped, or delivered) within the date range
-      statusWhereConditions.push(`(
-        (processed_time IS NOT NULL AND DATE(processed_time) BETWEEN ? AND ?) OR 
-        (shipped_time IS NOT NULL AND DATE(shipped_time) BETWEEN ? AND ?) OR 
-        (delivered_time IS NOT NULL AND DATE(delivered_time) BETWEEN ? AND ?)
-      )`);
-      statusParams.push(fromDate, toDate, fromDate, toDate, fromDate, toDate);
+      // ALL orders placed within the date range
+      statusWhereConditions.push(`DATE(placed_time) BETWEEN ? AND ?`);
+      statusParams.push(fromDate, toDate);
     }
 
     // Only include CONFIRMED orders by default  
@@ -128,7 +124,7 @@ export async function GET(request: NextRequest) {
     statusParams.push('CONFIRMED');
 
     // Filter out "Not Processed" orders   
-    statusWhereConditions.push('NOT (processed_time IS NULL AND shipped_time IS NULL AND delivered_time IS NULL)');
+    // statusWhereConditions.push('NOT (processed_time IS NULL AND shipped_time IS NULL AND delivered_time IS NULL)');
 
     const statusWhereClause = statusWhereConditions.length > 0 ? `WHERE ${statusWhereConditions.join(' AND ')}` : '';
 
@@ -264,7 +260,7 @@ export async function GET(request: NextRequest) {
           WHEN o.shipped_time IS NOT NULL AND o.delivered_time IS NULL THEN 'Shipped'
           WHEN o.processed_time IS NOT NULL AND o.shipped_time IS NULL THEN 'Processed'
           WHEN o.processed_time IS NULL AND o.shipped_time IS NULL AND o.delivered_time IS NULL THEN 'Not Processed'
-          ELSE 'Processing'
+          ELSE 'OMS Sync'
         END as current_stage,
         ${slaStatusCase} as sla_status,
         ${pendingStatusCase} as pending_status

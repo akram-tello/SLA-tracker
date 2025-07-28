@@ -5,7 +5,7 @@
 :root {
   /* Light theme colors */
   --color-background: #f9fafb;
-  --color-foreground: #111827;
+  --color-foreground: #000000;
   --color-primary: #2563eb;
   --color-primary-foreground: #ffffff;
   --color-secondary: #f3f4f6;
@@ -21,7 +21,7 @@
 
 .dark {
   /* Dark theme colors */
-  --color-background: #111827;
+  --color-background: #000000;
   --color-foreground: #f9fafb;
   --color-primary: #3b82f6;
   --color-primary-foreground: #ffffff;
@@ -46,8 +46,8 @@ body {
 }
 
 .dark body {
-  color: rgb(249 250 251);
-  background: rgb(17 24 39);
+  color: rgb(255, 255, 255);
+  background: rgb(0, 0, 0);
 }
 
 /* Chart text color overrides for dark mode */

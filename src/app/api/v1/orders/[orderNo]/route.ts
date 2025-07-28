@@ -224,17 +224,17 @@ function calculateStageAnalysis(orderDetails: Record<string, unknown>, tatConfig
     }
 
     stages.push({
-      stage: 'Processing',
+      stage: 'OMS Sync',
       status,
       actual_time: formatMinutesToTime(actualProcessingMinutes),
       sla_threshold: String(tatConfig.processed_tat),
       risk_threshold: calculateRiskThreshold(String(tatConfig.processed_tat), Number(tatConfig.risk_pct)),
       exceeded_by: exceededBy,
       description: status === 'Breached' 
-        ? `Order took ${formatMinutesToTime(actualProcessingMinutes)} to process, exceeding SLA of ${tatConfig.processed_tat} by ${exceededBy}`
+        ? `Order took ${formatMinutesToTime(actualProcessingMinutes)} to sync to OMS, exceeding SLA of ${tatConfig.processed_tat} by ${exceededBy}`
         : status === 'At Risk'
-        ? `Order took ${formatMinutesToTime(actualProcessingMinutes)} to process, approaching SLA limit of ${tatConfig.processed_tat}`
-        : `Order processed within SLA in ${formatMinutesToTime(actualProcessingMinutes)}`
+        ? `Order took ${formatMinutesToTime(actualProcessingMinutes)} to sync to OMS, approaching SLA limit of ${tatConfig.processed_tat}`
+        : `Order synced to OMS within SLA in ${formatMinutesToTime(actualProcessingMinutes)}`
     });
   } else if (!processedTime) {
     // Order hasn't been processed yet - check if it should have been
@@ -252,17 +252,17 @@ function calculateStageAnalysis(orderDetails: Record<string, unknown>, tatConfig
     }
 
     stages.push({
-      stage: 'Processing',
+      stage: 'OMS Sync',
       status,
-      actual_time: `${formatMinutesToTime(timeSinceOrder)} (pending)`,
+      actual_time: `${formatMinutesToTime(timeSinceOrder)} (elapsed)`,
       sla_threshold: String(tatConfig.processed_tat),
       risk_threshold: calculateRiskThreshold(String(tatConfig.processed_tat), Number(tatConfig.risk_pct)),
       exceeded_by: exceededBy,
       description: status === 'Breached'
-        ? `Order has been pending processing for ${formatMinutesToTime(timeSinceOrder)}, exceeding SLA of ${tatConfig.processed_tat} by ${exceededBy}`
+        ? `Order has been pending OMS sync for ${formatMinutesToTime(timeSinceOrder)}, exceeding SLA of ${tatConfig.processed_tat} by ${exceededBy}`
         : status === 'At Risk'
-        ? `Order has been pending processing for ${formatMinutesToTime(timeSinceOrder)}, approaching SLA limit of ${tatConfig.processed_tat}`
-        : `Order is within processing SLA (${formatMinutesToTime(timeSinceOrder)} elapsed)`
+        ? `Order has been pending OMS sync for ${formatMinutesToTime(timeSinceOrder)}, approaching SLA limit of ${tatConfig.processed_tat}`
+        : `Order is within OMS sync SLA (${formatMinutesToTime(timeSinceOrder)} elapsed)`
     });
   }
 
@@ -315,7 +315,7 @@ function calculateStageAnalysis(orderDetails: Record<string, unknown>, tatConfig
     stages.push({
       stage: 'Shipping',
       status,
-      actual_time: `${formatMinutesToTime(timeSinceOrder)} (pending)`,
+      actual_time: `${formatMinutesToTime(timeSinceOrder)} (elapsed)`,
       sla_threshold: String(tatConfig.shipped_tat),
       risk_threshold: calculateRiskThreshold(String(tatConfig.shipped_tat), Number(tatConfig.risk_pct)),
       exceeded_by: exceededBy,
@@ -333,7 +333,7 @@ function calculateStageAnalysis(orderDetails: Record<string, unknown>, tatConfig
       sla_threshold: String(tatConfig.shipped_tat),
       risk_threshold: calculateRiskThreshold(String(tatConfig.shipped_tat), Number(tatConfig.risk_pct)),
       exceeded_by: null,
-      description: 'Order must be processed before shipping analysis'
+      description: 'Order must be synced to OMS before shipping analysis'
     });
   }
 
@@ -386,7 +386,7 @@ function calculateStageAnalysis(orderDetails: Record<string, unknown>, tatConfig
     stages.push({
       stage: 'Delivery',
       status,
-      actual_time: `${formatMinutesToTime(timeSinceOrder)} (pending)`,
+      actual_time: `${formatMinutesToTime(timeSinceOrder)} (elapsed)`,
       sla_threshold: String(tatConfig.delivered_tat),
       risk_threshold: calculateRiskThreshold(String(tatConfig.delivered_tat), Number(tatConfig.risk_pct)),
       exceeded_by: exceededBy,

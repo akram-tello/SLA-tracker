@@ -182,6 +182,179 @@ export function KPICards({ section = "all" }: { section?: "overview" | "action-r
 
   const data = dashboardData.kpis
 
+  // Calculate milestone KPIs based on stage breakdown
+  const calculateMilestoneKPIs = () => {
+    const stageBreakdown = dashboardData.stage_breakdown || []
+    
+    // Processed Stage KPIs (4 KPIs)
+    const processedStage = stageBreakdown.find(stage => stage.stage === 'Processed')
+    const notProcessedStage = stageBreakdown.find(stage => stage.stage === 'Not Processed')
+    
+    const processedKPIs = {
+      orders_not_processed: notProcessedStage?.total || 0,
+      orders_processed_on_time: processedStage?.on_time || 0,
+      orders_processed_at_risk: processedStage?.on_risk || 0,
+      orders_processed_breached: processedStage?.breached || 0
+    }
+    
+    // Shipped Stage KPIs (3 KPIs)
+    const shippedStage = stageBreakdown.find(stage => stage.stage === 'Shipped')
+    
+    const shippedKPIs = {
+      orders_shipped_on_time: shippedStage?.on_time || 0,
+      orders_shipped_at_risk: shippedStage?.on_risk || 0,
+      orders_shipped_breached: shippedStage?.breached || 0
+    }
+    
+    // Delivered Stage KPIs (3 KPIs)
+    const deliveredStage = stageBreakdown.find(stage => stage.stage === 'Delivered')
+    
+    const deliveredKPIs = {
+      orders_delivered_on_time: deliveredStage?.on_time || 0,
+      orders_delivered_at_risk: deliveredStage?.on_risk || 0,
+      orders_delivered_breached: deliveredStage?.breached || 0
+    }
+    
+    return {
+      processed: processedKPIs,
+      shipped: shippedKPIs,
+      delivered: deliveredKPIs
+    }
+  }
+  
+  // Calculate historical milestone KPIs based on stage timeline events
+  const calculateHistoricalMilestoneKPIs = async () => {
+    try {
+      // Build query parameters for both APIs
+      const params = new URLSearchParams()
+      
+      // Add current dashboard filters
+      if (filters.from_date) {
+        params.append('from_date', filters.from_date)
+      }
+      if (filters.to_date) {
+        params.append('to_date', filters.to_date)
+      }
+      if (filters.brands && filters.brands.length === 1) {
+        params.append('brand', filters.brands[0])
+      }
+      if (filters.countries && filters.countries.length === 1) {
+        params.append('country', filters.countries[0])
+      }
+      
+      // Fetch historical stage data from SLA performance chart API (timeline events)
+      const timelineResponse = await fetch(`api/v1/dashboard/sla-performance-chart?${params.toString()}`)
+      const timelineData = await timelineResponse.json()
+      
+      if (!timelineResponse.ok) {
+        console.error('Failed to fetch timeline stage data:', timelineData.error)
+        return null
+      }
+      
+      // Fetch current stage data from summary API (includes Not Processed orders)
+      const summaryResponse = await fetch(`api/v1/dashboard/summary?${params.toString()}`)
+      const summaryData = await summaryResponse.json()
+      
+      if (!summaryResponse.ok) {
+        console.error('Failed to fetch summary stage data:', summaryData.error)
+        return null
+      }
+      
+      const timelineStageBreakdown = timelineData.stage_breakdown || []
+      const summaryStageBreakdown = summaryData.stage_breakdown || []
+      
+      // Get Not Processed orders from summary API
+      const notProcessedStage = summaryStageBreakdown.find((stage: { stage: string }) => stage.stage === 'Not Processed')
+      
+      // Get timeline-based stage data
+      const processedStage = timelineStageBreakdown.find((stage: { stage: string }) => stage.stage === 'Processed')
+      const shippedStage = timelineStageBreakdown.find((stage: { stage: string }) => stage.stage === 'Shipped')
+      const deliveredStage = timelineStageBreakdown.find((stage: { stage: string }) => stage.stage === 'Delivered')
+      
+      const processedKPIs = {
+        orders_not_processed: notProcessedStage?.total || 0,
+        orders_processed_on_time: processedStage?.on_time || 0,
+        orders_processed_at_risk: processedStage?.on_risk || 0,
+        orders_processed_breached: processedStage?.breached || 0,
+        orders_processed_total: processedStage?.total || 0
+      }
+      
+      const shippedKPIs = {
+        orders_shipped_on_time: shippedStage?.on_time || 0,
+        orders_shipped_at_risk: shippedStage?.on_risk || 0,
+        orders_shipped_breached: shippedStage?.breached || 0,
+        orders_shipped_total: shippedStage?.total || 0
+      }
+      
+      const deliveredKPIs = {
+        orders_delivered_on_time: deliveredStage?.on_time || 0,
+        orders_delivered_at_risk: deliveredStage?.on_risk || 0,
+        orders_delivered_breached: deliveredStage?.breached || 0,
+        orders_delivered_total: deliveredStage?.total || 0
+      }
+      
+      return {
+        processed: processedKPIs,
+        shipped: shippedKPIs,
+        delivered: deliveredKPIs
+      }
+    } catch (error) {
+      console.error('Error fetching historical stage data:', error)
+      return null
+    }
+  }
+
+  // Calculate and log historical milestone KPIs (stage timeline performance)
+  const logHistoricalMilestoneKPIs = async () => {
+    const historicalKPIs = await calculateHistoricalMilestoneKPIs()
+    
+    if (historicalKPIs) {
+      console.log('=== MILESTONE KPIs (Stage Timeline Performance) ===')
+      console.log('Not Processed Orders:', historicalKPIs.processed.orders_not_processed)
+      console.log('Processed Stage Performance:')
+      console.log('1. Orders Processed On Time:', historicalKPIs.processed.orders_processed_on_time)
+      console.log('2. Orders Processed At Risk:', historicalKPIs.processed.orders_processed_at_risk)
+      console.log('3. Orders Processed Breached:', historicalKPIs.processed.orders_processed_breached)
+      console.log('4. Total Orders Processed:', historicalKPIs.processed.orders_processed_total)
+      
+      console.log('Shipped Stage Performance:')
+      console.log('1. Orders Shipped On Time:', historicalKPIs.shipped.orders_shipped_on_time)
+      console.log('2. Orders Shipped At Risk:', historicalKPIs.shipped.orders_shipped_at_risk)
+      console.log('3. Orders Shipped Breached:', historicalKPIs.shipped.orders_shipped_breached)
+      console.log('4. Total Orders Shipped:', historicalKPIs.shipped.orders_shipped_total)
+      
+      console.log('Delivered Stage Performance:')
+      console.log('1. Orders Delivered On Time:', historicalKPIs.delivered.orders_delivered_on_time)
+      console.log('2. Orders Delivered At Risk:', historicalKPIs.delivered.orders_delivered_at_risk)
+      console.log('3. Orders Delivered Breached:', historicalKPIs.delivered.orders_delivered_breached)
+      console.log('4. Total Orders Delivered:', historicalKPIs.delivered.orders_delivered_total)
+      console.log('=== END HISTORICAL MILESTONE KPIs ===')
+    }
+  }
+  
+  
+  // Log current stage performance
+  // console.log('=== CURRENT MILESTONE KPIs (Current Stage Performance) ===')
+  // console.log('First Row - Orders in Processed Stage:')
+  // console.log('1. Orders Not Processed:', milestoneKPIs.processed.orders_not_processed)
+  // console.log('2. Orders Processed On Time:', milestoneKPIs.processed.orders_processed_on_time)
+  // console.log('3. Orders Processed At Risk:', milestoneKPIs.processed.orders_processed_at_risk)
+  // console.log('4. Orders Processed Breached:', milestoneKPIs.processed.orders_processed_breached)
+  
+  // console.log('Second Row - Orders in Shipped Stage:')
+  // console.log('1. Orders Shipped On Time:', milestoneKPIs.shipped.orders_shipped_on_time)
+  // console.log('2. Orders Shipped At Risk:', milestoneKPIs.shipped.orders_shipped_at_risk)
+  // console.log('3. Orders Shipped Breached:', milestoneKPIs.shipped.orders_shipped_breached)
+  
+  // console.log('Third Row - Orders in Delivered Stage:')
+  // console.log('1. Orders Delivered On Time:', milestoneKPIs.delivered.orders_delivered_on_time)
+  // console.log('2. Orders Delivered At Risk:', milestoneKPIs.delivered.orders_delivered_at_risk)
+  // console.log('3. Orders Delivered Breached:', milestoneKPIs.delivered.orders_delivered_breached)
+  // console.log('=== END CURRENT MILESTONE KPIs ===')
+  
+  // Log historical stage performance
+  logHistoricalMilestoneKPIs()
+
   // Helper function to build URL with current filters (status-based filtering)
   const buildFilteredUrl = (additionalParams: Record<string, string> = {}) => {
     const params = new URLSearchParams()

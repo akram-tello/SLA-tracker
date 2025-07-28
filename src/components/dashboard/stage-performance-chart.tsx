@@ -9,17 +9,43 @@ const ReactApexChart = dynamic(() => import("react-apexcharts"), { ssr: false })
 
 // Custom Tailwind Card component
 const Card = ({ children, className = "" }: { children: React.ReactNode; className?: string }) => (
-  <div className={`bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6 ${className}`}>
+  <div className={`bg-white rounded-lg hover:shadow-lg border dark:bg-zinc-950/50 backdrop-blur-sm border-gray-200 dark:border-gray-700 p-6 ${className}`}>
     {children}
   </div>
 );
 
 export function StagePerformanceChart() {
   const [mounted, setMounted] = useState(false)
+  const [isDarkMode, setIsDarkMode] = useState(false)
   const { dashboardData, loading, error } = useDashboard()
 
   useEffect(() => {
     setMounted(true)
+    
+    // Detect dark mode
+    const checkDarkMode = () => {
+      if (typeof window !== 'undefined') {
+        const isDark = document.documentElement.classList.contains('dark') || 
+                      window.matchMedia('(prefers-color-scheme: dark)').matches
+        setIsDarkMode(isDark)
+      }
+    }
+    
+    checkDarkMode()
+    
+    // Listen for theme changes
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
+    const handleChange = () => checkDarkMode()
+    mediaQuery.addEventListener('change', handleChange)
+    
+    // Listen for class changes on html element
+    const observer = new MutationObserver(checkDarkMode)
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
+    
+    return () => {
+      mediaQuery.removeEventListener('change', handleChange)
+      observer.disconnect()
+    }
   }, [])
 
   const stageKpis = dashboardData?.stage_kpis || []
@@ -62,7 +88,7 @@ export function StagePerformanceChart() {
     legend: {
       position: 'bottom' as const,
       labels: {
-        colors: '#374151' // gray-700 for light mode, will be overridden by dark mode CSS
+        colors: '#374151' 
       }
     },
     plotOptions: {
@@ -75,12 +101,19 @@ export function StagePerformanceChart() {
               show: true,
               showAlways: true,
               label: 'Total Orders',
-              color: '#374151', // gray-700 for light mode
-              fontSize: '16px',
+              color: 'oklch(70.7% 0.022 261.325)',
+              fontSize: '14px',
               fontWeight: 600,
               formatter: () => {
                 return `${completionData.totalOrders.toLocaleString()}`
               }
+            },
+            value: {
+              show: true,
+              fontSize: '20px',
+              fontWeight: 600,
+              color: 'oklch(70.7% 0.022 261.325)',
+              offsetY: 0
             }
           }
         }

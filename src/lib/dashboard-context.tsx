@@ -31,6 +31,10 @@ interface DashboardContextType {
   filterOptions: FilterOptions;
   loadingFilterOptions: boolean;
   
+  // Filter-first state
+  hasSelectedFilters: boolean;
+  setHasInitialized: (initialized: boolean) => void;
+  
   // Data state
   dashboardData: DashboardSummary | null;
   loading: boolean;
@@ -86,13 +90,19 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children }
   const [loadingFilterOptions, setLoadingFilterOptions] = useState(true);
 
   const [dashboardData, setDashboardData] = useState<DashboardSummary | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false); // Start as false since we don't load data initially
   const [error, setError] = useState<string | null>(null);
+  
+  // Track if user has gone through the filter selection process
+  const [hasInitialized, setHasInitialized] = useState(false);
+  
+  // Check if user has selected any filters (allow no filters for "all data" view)
+  const hasSelectedFilters = hasInitialized;
 
   const fetchFilterOptions = useCallback(async () => {
     setLoadingFilterOptions(true);
     try {
-      const response = await fetch('/api/v1/dashboard/filters');
+      const response = await fetch('api/v1/dashboard/filters');
       if (!response.ok) {
         console.warn(`Filter options API returned ${response.status}, using fallback`);
       }
@@ -142,7 +152,7 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children }
         params.append('country', filters.countries[0]);
       }
 
-      const response = await fetch(`/api/v1/dashboard/summary?${params}`);
+      const response = await fetch(`api/v1/dashboard/summary?${params}`);
       if (!response.ok) {
         throw new Error(`Failed to fetch dashboard data: ${response.statusText}`);
       }
@@ -163,10 +173,12 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children }
     fetchFilterOptions();
   }, [fetchFilterOptions]);
 
-  // Fetch data when filters change
+  // Fetch data when filters change, but only after initialization
   useEffect(() => {
-    fetchDashboardData();
-  }, [fetchDashboardData]);
+    if (hasSelectedFilters) {
+      fetchDashboardData();
+    }
+  }, [fetchDashboardData, hasSelectedFilters]);
 
   const refreshData = useCallback(() => {
     fetchDashboardData();
@@ -177,6 +189,8 @@ export const DashboardProvider: React.FC<DashboardProviderProps> = ({ children }
     setFilters,
     filterOptions,
     loadingFilterOptions,
+    hasSelectedFilters,
+    setHasInitialized,
     dashboardData,
     loading,
     error,

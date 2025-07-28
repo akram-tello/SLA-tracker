@@ -91,7 +91,7 @@ const Card = ({
   children: React.ReactNode; 
   className?: string;
 }) => (
-  <div className={`bg-white/60 dark:bg-gray-800/60 backdrop-blur-sm rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm ${className}`}>
+  <div className={`bg-white/60 dark:bg-zinc-950/60 backdrop-blur-sm rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm ${className}`}>
     {children}
   </div>
 );
@@ -100,7 +100,7 @@ const Card = ({
 const Table = ({ children }: { children: React.ReactNode }) => (
   <div className="overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700">
     <div className="overflow-x-auto">
-      <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700 bg-white dark:bg-gray-800">
+      <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700 bg-white dark:bg-zinc-950/50 backdrop-blur-sm">
         {children}
       </table>
     </div>
@@ -115,7 +115,7 @@ const TableHeader = ({ children }: { children: React.ReactNode }) => (
 
 const TableHeaderCell = ({ children, className = "", onClick }: { children: React.ReactNode; className?: string; onClick?: () => void }) => (
   <th 
-    className={`px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider hover:bg-gray-100 dark:hover:bg-gray-800 ${className}`}
+    className={`px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider hover:bg-gray-100 dark:hover:bg-zinc-950/50 ${className}`}
     onClick={onClick}
   >
     {children}
@@ -123,7 +123,7 @@ const TableHeaderCell = ({ children, className = "", onClick }: { children: Reac
 );
 
 const TableBody = ({ children }: { children: React.ReactNode }) => (
-  <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+  <tbody className="bg-white dark:bg-zinc-950/50 divide-y divide-gray-200 dark:divide-gray-700">
     {children}
   </tbody>
 );
@@ -133,7 +133,7 @@ const TableRow = ({ children, className = "", onClick }: {
   className?: string;
   onClick?: () => void;
 }) => (
-  <tr className={`hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors ${className}`} onClick={onClick}>
+  <tr className={`hover:bg-gray-50 dark:hover:bg-zinc-900 transition-colors ${className}`} onClick={onClick}>
     {children}
   </tr>
 );
@@ -254,12 +254,13 @@ function OrdersContent() {
     countries: []
   })
   const [loadingFilterOptions, setLoadingFilterOptions] = useState(true)
+  const basePath = process.env.NEXT_PUBLIC_BASE_PATH;
 
   // Fetch filter options from dashboard API
   const fetchFilterOptions = async () => {
     setLoadingFilterOptions(true)
     try {
-      const response = await fetch('/api/v1/dashboard/filters')
+      const response = await fetch(`${basePath}/api/v1/dashboard/filters`)
       if (!response.ok) {
         console.warn(`Filter options API returned ${response.status}, using fallback`)
       }
@@ -300,7 +301,8 @@ function OrdersContent() {
   ]
 
   const stageOptions = [
-    { value: "Processed", label: "Processed" },
+    { value: "Not Processed", label: "Not Synced to OMS" },
+    { value: "Processed", label: "OMS Synced" },
     { value: "Shipped", label: "Shipped" },
     { value: "Delivered", label: "Delivered" }
   ]
@@ -350,7 +352,8 @@ function OrdersContent() {
       // Add kpi_mode parameter if coming from KPI cards
       if (kpiMode) params.append('kpi_mode', 'true')
 
-      const response = await fetch(`/api/v1/orders?${params}`)
+
+      const response = await fetch(`${basePath}/api/v1/orders?${params}`)
       if (!response.ok) throw new Error('Failed to fetch orders')
       
       const data: OrdersResponse = await response.json()
@@ -476,7 +479,7 @@ function OrdersContent() {
       }
 
       stages.push({
-        stage: 'Processing',
+        stage: 'OMS Sync',
         status,
         actual_time: formatMinutesToTime(actualProcessingMinutes),
         exceeded_by: exceededBy,
@@ -496,9 +499,9 @@ function OrdersContent() {
       }
 
       stages.push({
-        stage: 'Processing',
+        stage: 'OMS Sync',
         status,
-        actual_time: `${formatMinutesToTime(timeSinceOrder)} (pending)`,
+        actual_time: `${formatMinutesToTime(timeSinceOrder)} elapsed`,
         exceeded_by: exceededBy,
         isCompleted: false
       });
@@ -543,7 +546,7 @@ function OrdersContent() {
       stages.push({
         stage: 'Shipping',
         status,
-        actual_time: `${formatMinutesToTime(timeSinceOrder)} pending`,
+        actual_time: `${formatMinutesToTime(timeSinceOrder)} elapsed`,
         exceeded_by: exceededBy,
         isCompleted: false
       });
@@ -596,7 +599,7 @@ function OrdersContent() {
       stages.push({
         stage: 'Delivery',
         status,
-        actual_time: `${formatMinutesToTime(timeSinceOrder)} (pending)`,
+        actual_time: `${formatMinutesToTime(timeSinceOrder)} elapsed`,
         exceeded_by: exceededBy,
         isCompleted: false
       });
@@ -629,8 +632,8 @@ function OrdersContent() {
 
   const getStageBadge = (stage: string) => {
     const stageConfig = {
-      'Not Processed': { variant: 'gray' as const },
-      'Processed': { variant: 'info' as const },
+      'Not Synced to OMS': { variant: 'gray' as const },
+      'OMS Synced': { variant: 'info' as const },
       'Shipped': { variant: 'warning' as const },
       'Delivered': { variant: 'success' as const }
     }
@@ -658,9 +661,9 @@ function OrdersContent() {
     // Check for action required (pending beyond thresholds)
     if (order.pending_status === 'pending') {
       switch (order.current_stage) {
-        case 'Not Processed':
-          return 'Action Required - Processing Overdue';
-        case 'Processed':
+        case 'Not Synced to OMS':
+          return 'Action Required - Syncing to OMS Overdue';
+        case 'OMS Synced':
           return 'Action Required - Shipping Overdue';
         case 'Shipped':
           return 'Action Required - Delivery Overdue';
@@ -672,9 +675,9 @@ function OrdersContent() {
     // Check for at-risk orders (approaching SLA breach)
     if (order.sla_status === 'At Risk') {
       switch (order.current_stage) {
-        case 'Not Processed':
-          return 'At Risk - Processing';
-        case 'Processed':
+        case 'Not Synced to OMS':
+          return 'At Risk - OMS Sync';
+        case 'OMS Synced':
           return 'At Risk - Shipping';
         case 'Shipped':
           return 'At Risk - Delivery';
@@ -686,9 +689,9 @@ function OrdersContent() {
     // Check for already breached orders
     if (order.sla_status === 'Breached') {
       switch (order.current_stage) {
-        case 'Not Processed':
-          return 'Breached - Processing';
-        case 'Processed':
+        case 'Not Synced to OMS':
+          return 'Breached - Syncing to OMS';
+        case 'OMS Synced':
           return 'Breached - Shipping';
         case 'Shipped':
           return 'Breached - Delivery';
@@ -703,7 +706,7 @@ function OrdersContent() {
 
   // Enhanced SLA Badge that shows only traditional SLA status
   const getEnhancedSLABadge = (order: typeof orders[0]) => {
-    if (order.current_stage === 'Not Processed') {
+      if (order.current_stage === 'Not Synced to OMS') {
       return <span className="text-sm text-gray-500">N/A</span>;
     }
 
@@ -924,12 +927,12 @@ function OrdersContent() {
 
   const { title, subtitle } = getDynamicTitle();
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800 p-6 transition-colors duration-200">
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 dark:from-black dark:to-black p-6 transition-colors duration-200">
       <div className="mx-auto space-y-6 container px-4 py-8">
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-center gap-4">
-            <Link href="/">
+            <Link href={`/`}>
               <Button variant="ghost" icon={<ArrowLeft className="h-4 w-4" />}>
                 Dashboard
               </Button>
@@ -1244,9 +1247,9 @@ function OrdersContent() {
                   // Helper function to get next milestone
                   const getNextMilestone = (currentStage: string) => {
                     switch(currentStage) {
-                      case 'Not Processed':
-                        return 'Order not confirmed';
-                      case 'Processed':
+                      case 'Not Synced to OMS':
+                        return 'Sync to OMS';
+                      case 'OMS Synced':
                         return 'Shipped';
                       case 'Shipped':
                         return 'Delivered';
@@ -1264,16 +1267,16 @@ function OrdersContent() {
                     
                     // Process each stage
                     stageAnalysis.forEach((stage) => {
-                      if (stage.stage === 'Processing') {
+                      if (stage.stage === 'OMS Sync') {
                         if (order.processed_time) {
                           const processedDate = new Date(order.processed_time);
-                          let line = `Processed: ${format(processedDate, 'MMM dd, yyyy HH:mm')}`;
+                          let line = `Synced to OMS: ${format(processedDate, 'MMM dd, yyyy HH:mm')}`;
                           if (stage.exceeded_by) {
                             line += ` (was +${stage.exceeded_by} over SLA)`;
                           }
                           timeline.push(line);
                         } else if (stage.actual_time) {
-                          let line = `Processing: (${stage.actual_time})`;
+                          let line = `Not Synced to OMS: (${stage.actual_time})`;
                           if (stage.exceeded_by) {
                             line += ` +${stage.exceeded_by} over SLA`;
                           }
@@ -1288,7 +1291,7 @@ function OrdersContent() {
                           }
                           timeline.push(line);
                         } else if (stage.actual_time) {
-                          let line = `Shipping: (${stage.actual_time})`;
+                          let line = `In Shipping: (${stage.actual_time})`;
                           if (stage.exceeded_by) {
                             line += ` +${stage.exceeded_by} over SLA`;
                           }
@@ -1303,7 +1306,7 @@ function OrdersContent() {
                           }
                           timeline.push(line);
                         } else if (stage.actual_time) {
-                          let line = `Delivery: ${stage.actual_time}`;
+                          let line = `In Delivery: ${stage.actual_time}`;
                           if (stage.exceeded_by) {
                             line += ` +${stage.exceeded_by} over SLA`;
                           }

@@ -117,9 +117,9 @@ export async function GET(request: NextRequest) {
     }
 
     // Filter out "Not Processed" orders from UI unless explicitly requested
-    if (filters.stage !== 'Not Processed') {
-      whereConditions.push('NOT (processed_time IS NULL AND shipped_time IS NULL AND delivered_time IS NULL)');
-    }
+    // if (filters.stage !== 'Not Processed') {
+    //   whereConditions.push('NOT (processed_time IS NULL AND shipped_time IS NULL AND delivered_time IS NULL)');
+    // }
 
     // Add fulfilment_status filtering (for KPI compatibility)
     if (filters.fulfilment_status) {
@@ -278,9 +278,9 @@ export async function GET(request: NextRequest) {
         CASE 
           WHEN o.delivered_time IS NOT NULL THEN 'Delivered'
           WHEN o.shipped_time IS NOT NULL AND o.delivered_time IS NULL THEN 'Shipped'
-          WHEN o.processed_time IS NOT NULL AND o.shipped_time IS NULL THEN 'Processed'
-          WHEN o.processed_time IS NULL AND o.shipped_time IS NULL AND o.delivered_time IS NULL THEN 'Not Processed'
-          ELSE 'Processing'
+          WHEN o.processed_time IS NOT NULL AND o.shipped_time IS NULL THEN 'OMS Synced'
+          WHEN o.processed_time IS NULL AND o.shipped_time IS NULL AND o.delivered_time IS NULL THEN 'Not Synced to OMS'
+          ELSE 'OMS Sync'
         END as current_stage,
         CASE 
           -- For orders not yet processed
@@ -400,7 +400,7 @@ export async function GET(request: NextRequest) {
       delivered_tat: row.delivered_tat ? String(row.delivered_tat) : null,
       brand_name: String(row.brand_name || ''),
       country_code: String(row.country_code || ''),
-      current_stage: String(row.current_stage || 'Processing'),
+              current_stage: String(row.current_stage || 'OMS Sync'),
       sla_status: String(row.sla_status || 'Unknown'),
       pending_status: String(row.pending_status || 'normal'),
       pending_hours: Number(row.pending_hours || 0),

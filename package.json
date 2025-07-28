@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start",
+    "start": "dotenv -e .env -- sh -c 'next start -p $PORT'",
     "lint": "next lint",
     "type-check": "tsc --noEmit",
     "db:migrate": "mysql -u $ANALYTICS_DB_USER -p$ANALYTICS_DB_PASSWORD < migrations/001_create_schema.sql",
@@ -16,11 +16,12 @@
     "etl:sync": "curl -X POST ${ETL_API_URL:-http://localhost:3000}/api/v1/etl/sync",
     "etl:status": "curl ${ETL_API_URL:-http://localhost:3000}/api/v1/etl/status",
     "etl:health": "curl ${ETL_API_URL:-http://localhost:3000}/api/v1/dashboard/health",
-    "etl:cleanup": "curl ${ETL_API_URL:-http://localhost:3000}/api/v1/etl/cleanup"
+    "etl:cleanup": "curl ${ETL_API_URL:-http://localhost:3000}/api/v1/etl/cleanup",
+    "etl:summary": "curl -X POST ${ETL_API_URL:-http://localhost:3000}/api/v1/etl/generate-summary"
   },
-      "dependencies": {
-      "apexcharts": "^4.0.0",
-      "bullmq": "^5.36.3",
+  "dependencies": {
+    "apexcharts": "^4.0.0",
+    "bullmq": "^5.36.3",
     "clsx": "^2.1.1",
     "compression": "^1.7.5",
     "cors": "^2.8.5",
@@ -49,6 +50,8 @@
     "@types/react": "^18.3.17",
     "@types/react-dom": "^18.3.5",
     "autoprefixer": "^10.4.21",
+    "cross-env": "^7.0.3",
+    "dotenv-cli": "^9.0.0",
     "eslint": "^8.57.1",
     "eslint-config-next": "15.1.6",
     "postcss": "^8.5.6",
