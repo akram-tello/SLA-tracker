@@ -451,7 +451,7 @@ export async function GET(request: NextRequest) {
         breached: stageBreached,
         completion_rate: stageTotal > 0 ? Math.round((stageOnTime / stageTotal) * 100 * 10) / 10 : 0
       };
-    }).filter(stage => stage.total > 0); // Only include stages with events
+    }); // Always include all stages
     
     console.log('\n=== FINAL STAGE BREAKDOWN ===');
     stageBreakdown.forEach(stage => {

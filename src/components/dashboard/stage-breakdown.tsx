@@ -6,7 +6,7 @@ import Link from 'next/link'
 import { ArrowUpRight } from 'lucide-react'
 
 export function StageBreakdown() {
-  const { dashboardData, loading, error, filters } = useDashboard()
+  const { dashboardV2Data, loading, error, filters } = useDashboard()
 
   if (loading) {
     return (
@@ -51,7 +51,7 @@ export function StageBreakdown() {
     )
   }
 
-  const stageData = dashboardData?.stage_breakdown || []
+  const stageData = dashboardV2Data?.stage_breakdown || []
 
   if (stageData.length === 0) {
     return (

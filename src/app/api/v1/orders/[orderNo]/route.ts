@@ -1,6 +1,47 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAnalyticsDb } from '@/lib/db';
-import { parseTimeStringToMinutes, calculateRiskThreshold } from '@/lib/utils';
+import { parseTimeStringToMinutes, calculateRiskThreshold, formatToMasterDbTime, formatToLocalTimeWithOffset } from '@/lib/utils';
+
+// Country code to timezone mapping for SLA calculations
+const COUNTRY_TIMEZONE_MAPPING: Record<string, { timezone: string; offsetHours: number; abbreviation: string }> = {
+  'MY': { timezone: 'Asia/Kuala_Lumpur', offsetHours: 8, abbreviation: 'MY' },
+  'SG': { timezone: 'Asia/Singapore', offsetHours: 8, abbreviation: 'SG' },
+  'TH': { timezone: 'Asia/Bangkok', offsetHours: 7, abbreviation: 'TH' },
+  'ID': { timezone: 'Asia/Jakarta', offsetHours: 7, abbreviation: 'ID' },
+  'PH': { timezone: 'Asia/Manila', offsetHours: 8, abbreviation: 'PH' },
+  'HK': { timezone: 'Asia/Hong_Kong', offsetHours: 8, abbreviation: 'HK' },
+  'AU': { timezone: 'Australia/Sydney', offsetHours: 10, abbreviation: 'AU' }, 
+  'NZ': { timezone: 'Pacific/Auckland', offsetHours: 12, abbreviation: 'NZ' }, 
+  'VN': { timezone: 'Asia/Ho_Chi_Minh', offsetHours: 7, abbreviation: 'VN' }
+};
+
+/**
+ * Calculate time difference in minutes between two local time strings
+ * Automatically detects timezone from the timezone suffix in the strings
+ */
+function calculateTimeDifferenceFromLocalStrings(startTimeString: string, endTimeString: string): number {
+  if (!startTimeString || !endTimeString) return 0;
+  
+  // Extract timezone from the string (e.g., "(HK)", "(AU)", etc.)
+  const timezoneMatch = startTimeString.match(/\(([^)]+)\)$/);
+  const countryCode = timezoneMatch ? timezoneMatch[1] : 'HK';
+  
+  // Get the timezone offset based on country code
+  const timezoneInfo = COUNTRY_TIMEZONE_MAPPING[countryCode] || COUNTRY_TIMEZONE_MAPPING['HK'];
+  const offsetHours = timezoneInfo.offsetHours;
+  
+  // Remove timezone suffixes like " (HK)" or " (AU)"
+  const cleanStartTime = startTimeString.replace(/\s*\([^)]+\)$/, '');
+  const cleanEndTime = endTimeString.replace(/\s*\([^)]+\)$/, '');
+  
+  // Parse with the correct timezone offset
+  const offsetString = offsetHours >= 0 ? `+${offsetHours.toString().padStart(2, '0')}:00` : `${offsetHours.toString().padStart(3, '0')}:00`;
+  const startDate = new Date(cleanStartTime.replace(' ', 'T') + offsetString);
+  const endDate = new Date(cleanEndTime.replace(' ', 'T') + offsetString);
+  
+  // Calculate difference in minutes
+  return Math.floor((endDate.getTime() - startDate.getTime()) / (1000 * 60));
+}
 
 interface StageAnalysis {
   stage: string;
@@ -106,7 +147,7 @@ export async function GET(
 
     // Get TAT configuration for this brand/country
     const [tatConfigRows] = await db.execute(`
-      SELECT processed_tat, shipped_tat, delivered_tat, risk_pct
+      SELECT processed_tat, shipped_tat, delivered_tat, risk_pct, urgent_pct, critical_pct
       FROM tat_config 
       WHERE brand_name = ? AND country_code = ?
     `, [orderDetails.brand_name, orderDetails.country_code]);
@@ -116,11 +157,59 @@ export async function GET(
       processed_tat: '2h',
       shipped_tat: '2d', 
       delivered_tat: '7d',
-      risk_pct: 80
+      risk_pct: 80,
+      urgent_pct: 100,
+      critical_pct: 150
     };
 
-    // Calculate stage analysis
-    const stageAnalysis = calculateStageAnalysis(orderDetails, tatConfig);
+    // Extract country code for timezone conversion
+    const countryCode = String(orderDetails.country_code || '');
+
+    // Calculate stage analysis using local time strings for accurate SLA calculations
+    const localTimes = {
+      placed_time_local: formatToLocalTimeWithOffset(orderDetails.placed_time as Date, countryCode),
+      processed_time_local: formatToLocalTimeWithOffset(orderDetails.processed_time as Date, countryCode),
+      shipped_time_local: formatToLocalTimeWithOffset(orderDetails.shipped_time as Date, countryCode),
+      delivered_time_local: formatToLocalTimeWithOffset(orderDetails.delivered_time as Date, countryCode)
+    };
+    const stageAnalysis = calculateStageAnalysis(orderDetails, tatConfig, localTimes, countryCode);
+
+    //! Calculate breach severity for current pending state only (Delivered => None)
+    const nowUtc = new Date();
+    const placedUtc = orderDetails.placed_time ? new Date(orderDetails.placed_time as Date) : null;
+    const placedToNowMinutes = placedUtc
+      ? Math.floor((nowUtc.getTime() - placedUtc.getTime()) / (1000 * 60))
+      : 0;
+    const processedTatMinutes = parseTimeStringToMinutes(String(tatConfig.processed_tat));
+    const shippedTatMinutes = parseTimeStringToMinutes(String(tatConfig.shipped_tat));
+    const deliveredTatMinutes = parseTimeStringToMinutes(String(tatConfig.delivered_tat));
+    const urgentPct = Number(tatConfig.urgent_pct || 100);
+    const criticalPct = Number(tatConfig.critical_pct || 150);
+
+    let breachSeverity: 'None' | 'Urgent' | 'Critical' = 'None';
+
+    // Determine current pending stage and apply thresholds
+    if (orderDetails.delivered_time) {
+      breachSeverity = 'None';
+    } else if (orderDetails.shipped_time) {
+      const urgentThreshold = (deliveredTatMinutes * urgentPct) / 100;
+      const criticalThreshold = (deliveredTatMinutes * criticalPct) / 100;
+      breachSeverity = placedToNowMinutes > criticalThreshold
+        ? 'Critical'
+        : (placedToNowMinutes > urgentThreshold ? 'Urgent' : 'None');
+    } else if (orderDetails.processed_time) {
+      const urgentThreshold = (shippedTatMinutes * urgentPct) / 100;
+      const criticalThreshold = (shippedTatMinutes * criticalPct) / 100;
+      breachSeverity = placedToNowMinutes > criticalThreshold
+        ? 'Critical'
+        : (placedToNowMinutes > urgentThreshold ? 'Urgent' : 'None');
+    } else {
+      const urgentThreshold = (processedTatMinutes * urgentPct) / 100;
+      const criticalThreshold = (processedTatMinutes * criticalPct) / 100;
+      breachSeverity = placedToNowMinutes > criticalThreshold
+        ? 'Critical'
+        : (placedToNowMinutes > urgentThreshold ? 'Urgent' : 'None');
+    }
 
     // Format the response
     const formattedOrder = {
@@ -128,10 +217,14 @@ export async function GET(
       order_status: String(orderDetails.order_status || ''),
       shipping_status: String(orderDetails.shipping_status || ''),
       confirmation_status: String(orderDetails.confirmation_status || ''),
-      placed_time: orderDetails.placed_time,
-      processed_time: orderDetails.processed_time,
-      shipped_time: orderDetails.shipped_time,
-      delivered_time: orderDetails.delivered_time,
+      placed_time: formatToMasterDbTime(orderDetails.placed_time as Date) || orderDetails.placed_time,
+      placed_time_local: formatToLocalTimeWithOffset(orderDetails.placed_time as Date, countryCode),
+      processed_time: formatToMasterDbTime(orderDetails.processed_time as Date) || orderDetails.processed_time,
+      processed_time_local: formatToLocalTimeWithOffset(orderDetails.processed_time as Date, countryCode),
+      shipped_time: formatToMasterDbTime(orderDetails.shipped_time as Date) || orderDetails.shipped_time,
+      shipped_time_local: formatToLocalTimeWithOffset(orderDetails.shipped_time as Date, countryCode),
+      delivered_time: formatToMasterDbTime(orderDetails.delivered_time as Date) || orderDetails.delivered_time,
+      delivered_time_local: formatToLocalTimeWithOffset(orderDetails.delivered_time as Date, countryCode),
       processed_tat: orderDetails.processed_tat ? String(orderDetails.processed_tat) : null,
       shipped_tat: orderDetails.shipped_tat ? String(orderDetails.shipped_tat) : null,
       delivered_tat: orderDetails.delivered_tat ? String(orderDetails.delivered_tat) : null,
@@ -159,7 +252,9 @@ export async function GET(
       // SLA breach analysis for each stage
       sla_analysis: stageAnalysis,
       // Overall SLA status
-      overall_sla_status: determineOverallSLAStatus(stageAnalysis)
+      overall_sla_status: determineOverallSLAStatus(stageAnalysis),
+      // Breach severity for the current pending state (Delivered => None)
+      breach_severity: breachSeverity
     };
 
     return NextResponse.json({ order: formattedOrder });
@@ -176,12 +271,12 @@ export async function GET(
   }
 }
 
-function calculateStageAnalysis(orderDetails: Record<string, unknown>, tatConfig: Record<string, string | number>): StageAnalysis[] {
-  const placedTime = orderDetails.placed_time as Date;
-  const processedTime = orderDetails.processed_time as Date | null;
-  const shippedTime = orderDetails.shipped_time as Date | null;
-  const deliveredTime = orderDetails.delivered_time as Date | null;
-
+function calculateStageAnalysis(
+  orderDetails: Record<string, unknown>, 
+  tatConfig: Record<string, string | number>,
+  localTimes: Record<string, string | null>,
+  countryCode: string
+): StageAnalysis[] {
   const stages: StageAnalysis[] = [];
 
   // Helper function to format minutes to readable time
@@ -200,17 +295,15 @@ function calculateStageAnalysis(orderDetails: Record<string, unknown>, tatConfig
     return `${days}d`;
   };
 
-  // Helper function to calculate time difference in minutes
-  const getTimeDifferenceMinutes = (start: Date, end: Date): number => {
-    return Math.floor((end.getTime() - start.getTime()) / (1000 * 60));
-  };
-
   // Processing Stage Analysis
   const processedSLAMinutes = parseTimeStringToMinutes(String(tatConfig.processed_tat));
   const processedRiskMinutes = parseTimeStringToMinutes(calculateRiskThreshold(String(tatConfig.processed_tat), Number(tatConfig.risk_pct)));
   
-  if (processedTime && placedTime) {
-    const actualProcessingMinutes = getTimeDifferenceMinutes(placedTime, processedTime);
+  if (localTimes.processed_time_local && localTimes.placed_time_local) {
+    const actualProcessingMinutes = calculateTimeDifferenceFromLocalStrings(
+      localTimes.placed_time_local,
+      localTimes.processed_time_local
+    );
     let status: 'On Time' | 'At Risk' | 'Breached';
     let exceededBy: string | null = null;
     
@@ -236,9 +329,24 @@ function calculateStageAnalysis(orderDetails: Record<string, unknown>, tatConfig
         ? `Order took ${formatMinutesToTime(actualProcessingMinutes)} to sync to OMS, approaching SLA limit of ${tatConfig.processed_tat}`
         : `Order synced to OMS within SLA in ${formatMinutesToTime(actualProcessingMinutes)}`
     });
-  } else if (!processedTime) {
+  } else if (!localTimes.processed_time_local) {
     // Order hasn't been processed yet - check if it should have been
-    const timeSinceOrder = getTimeDifferenceMinutes(placedTime, new Date());
+    // Use the actual current local time for the specific country for SLA calculations
+    const now = new Date();
+    const countryKey = countryCode?.toUpperCase();
+    const timezoneInfo = COUNTRY_TIMEZONE_MAPPING[countryKey || 'MY'] || COUNTRY_TIMEZONE_MAPPING['MY'];
+    
+    const currentTimeLocal = now.toLocaleString('sv-SE', { 
+      timeZone: timezoneInfo.timezone,
+      hour12: false 
+    });
+    const currentTimeFormatted = `${currentTimeLocal} (${timezoneInfo.abbreviation})`;
+    
+    const timeSinceOrder = calculateTimeDifferenceFromLocalStrings(
+      localTimes.placed_time_local!,
+      currentTimeFormatted
+    );
+    
     let status: 'On Time' | 'At Risk' | 'Breached';
     let exceededBy: string | null = null;
     
@@ -270,8 +378,11 @@ function calculateStageAnalysis(orderDetails: Record<string, unknown>, tatConfig
   const shippedSLAMinutes = parseTimeStringToMinutes(String(tatConfig.shipped_tat));
   const shippedRiskMinutes = parseTimeStringToMinutes(calculateRiskThreshold(String(tatConfig.shipped_tat), Number(tatConfig.risk_pct)));
   
-  if (shippedTime && placedTime) {
-    const actualShippingMinutes = getTimeDifferenceMinutes(placedTime, shippedTime);
+  if (localTimes.shipped_time_local && localTimes.placed_time_local) {
+    const actualShippingMinutes = calculateTimeDifferenceFromLocalStrings(
+      localTimes.placed_time_local,
+      localTimes.shipped_time_local
+    );
     let status: 'On Time' | 'At Risk' | 'Breached';
     let exceededBy: string | null = null;
     
@@ -297,9 +408,22 @@ function calculateStageAnalysis(orderDetails: Record<string, unknown>, tatConfig
         ? `Order took ${formatMinutesToTime(actualShippingMinutes)} to ship, approaching SLA limit of ${tatConfig.shipped_tat}`
         : `Order shipped within SLA in ${formatMinutesToTime(actualShippingMinutes)}`
     });
-  } else if (!shippedTime && processedTime) {
+  } else if (!localTimes.shipped_time_local && localTimes.processed_time_local) {
     // Order processed but not shipped yet
-    const timeSinceOrder = getTimeDifferenceMinutes(placedTime, new Date());
+    const now = new Date();
+    const countryKey = countryCode?.toUpperCase();
+    const timezoneInfo = COUNTRY_TIMEZONE_MAPPING[countryKey || 'MY'] || COUNTRY_TIMEZONE_MAPPING['MY'];
+    
+    const currentTimeLocal = now.toLocaleString('sv-SE', { 
+      timeZone: timezoneInfo.timezone,
+      hour12: false 
+    });
+    const currentTimeFormatted = `${currentTimeLocal} (${timezoneInfo.abbreviation})`;
+    
+    const timeSinceOrder = calculateTimeDifferenceFromLocalStrings(
+      localTimes.placed_time_local!,
+      currentTimeFormatted
+    );
     let status: 'On Time' | 'At Risk' | 'Breached';
     let exceededBy: string | null = null;
     
@@ -325,7 +449,7 @@ function calculateStageAnalysis(orderDetails: Record<string, unknown>, tatConfig
         ? `Order has been pending shipping for ${formatMinutesToTime(timeSinceOrder)}, approaching SLA limit of ${tatConfig.shipped_tat}`
         : `Order is within shipping SLA (${formatMinutesToTime(timeSinceOrder)} total elapsed)`
     });
-  } else if (!shippedTime && !processedTime) {
+  } else if (!localTimes.shipped_time_local && !localTimes.processed_time_local) {
     stages.push({
       stage: 'Shipping',
       status: 'N/A',
@@ -341,8 +465,11 @@ function calculateStageAnalysis(orderDetails: Record<string, unknown>, tatConfig
   const deliveredSLAMinutes = parseTimeStringToMinutes(String(tatConfig.delivered_tat));
   const deliveredRiskMinutes = parseTimeStringToMinutes(calculateRiskThreshold(String(tatConfig.delivered_tat), Number(tatConfig.risk_pct)));
   
-  if (deliveredTime && placedTime) {
-    const actualDeliveryMinutes = getTimeDifferenceMinutes(placedTime, deliveredTime);
+  if (localTimes.delivered_time_local && localTimes.placed_time_local) {
+    const actualDeliveryMinutes = calculateTimeDifferenceFromLocalStrings(
+      localTimes.placed_time_local,
+      localTimes.delivered_time_local
+    );
     let status: 'On Time' | 'At Risk' | 'Breached';
     let exceededBy: string | null = null;
     
@@ -368,9 +495,22 @@ function calculateStageAnalysis(orderDetails: Record<string, unknown>, tatConfig
         ? `Order took ${formatMinutesToTime(actualDeliveryMinutes)} to deliver, approaching SLA limit of ${tatConfig.delivered_tat}`
         : `Order delivered within SLA in ${formatMinutesToTime(actualDeliveryMinutes)}`
     });
-  } else if (!deliveredTime && shippedTime) {
+  } else if (!localTimes.delivered_time_local && localTimes.shipped_time_local) {
     // Order shipped but not delivered yet
-    const timeSinceOrder = getTimeDifferenceMinutes(placedTime, new Date());
+    const now = new Date();
+    const countryKey = countryCode?.toUpperCase();
+    const timezoneInfo = COUNTRY_TIMEZONE_MAPPING[countryKey || 'MY'] || COUNTRY_TIMEZONE_MAPPING['MY'];
+    
+    const currentTimeLocal = now.toLocaleString('sv-SE', { 
+      timeZone: timezoneInfo.timezone,
+      hour12: false 
+    });
+    const currentTimeFormatted = `${currentTimeLocal} (${timezoneInfo.abbreviation})`;
+    
+    const timeSinceOrder = calculateTimeDifferenceFromLocalStrings(
+      localTimes.placed_time_local!,
+      currentTimeFormatted
+    );
     let status: 'On Time' | 'At Risk' | 'Breached';
     let exceededBy: string | null = null;
     
@@ -396,7 +536,7 @@ function calculateStageAnalysis(orderDetails: Record<string, unknown>, tatConfig
         ? `Order has been pending delivery for ${formatMinutesToTime(timeSinceOrder)}, approaching SLA limit of ${tatConfig.delivered_tat}`
         : `Order is within delivery SLA (${formatMinutesToTime(timeSinceOrder)} total elapsed)`
     });
-  } else if (!deliveredTime) {
+  } else if (!localTimes.delivered_time_local) {
     stages.push({
       stage: 'Delivery',
       status: 'N/A',

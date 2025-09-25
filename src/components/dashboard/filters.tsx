@@ -1,36 +1,58 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { format } from "date-fns"
 import { useDashboard } from "@/lib/dashboard-context"
 import { RefreshCw } from "lucide-react"
 
 export function Filters() {
-  const { filters, setFilters, filterOptions, loadingFilterOptions, refreshData, setHasInitialized } = useDashboard()
-  
-  const handleResetFilters = () => {
-    setFilters({
-      from_date: filters.from_date,
-      to_date: filters.to_date,
-      brands: undefined,
-      countries: undefined,
-    })
-    setHasInitialized(false)
-  }
+  const { filters, setFilters, filterOptions, loadingFilterOptions, refreshData } = useDashboard()
   
   const [fromDate, setFromDate] = useState(filters.from_date)
   const [toDate, setToDate] = useState(filters.to_date)
-  const [selectedBrand, setSelectedBrand] = useState(filters.brands?.[0] || "")
-  const [selectedCountry, setSelectedCountry] = useState(filters.countries?.[0] || "")
+  
+  const selectedBrand = filters.brands?.[0] || ""
+  const selectedCountry = filters.countries?.[0] || ""
+
+  // Get available countries for the selected brand
+  const availableCountries = useMemo(() => {
+    return selectedBrand && filterOptions.brandCountries[selectedBrand] 
+      ? filterOptions.brandCountries[selectedBrand] 
+      : []
+  }, [selectedBrand, filterOptions.brandCountries])
+
+  const handleBrandChange = (brand: string) => {
+    const newFilters = {
+      ...filters,
+      brands: brand ? [brand] : undefined,
+      countries: undefined // Reset country when brand changes
+    }
+    setFilters(newFilters)
+  }
+
+  const handleCountryChange = (country: string) => {
+    const newFilters = {
+      ...filters,
+      countries: country ? [country] : undefined
+    }
+    setFilters(newFilters)
+  }
 
   useEffect(() => {
-    setFilters({
-      from_date: fromDate,
-      to_date: toDate,
-      brands: selectedBrand ? [selectedBrand] : undefined,
-      countries: selectedCountry ? [selectedCountry] : undefined,
-    })
-  }, [fromDate, toDate, selectedBrand, selectedCountry, setFilters])
+    if (fromDate !== filters.from_date || toDate !== filters.to_date) {
+      setFilters({
+        from_date: fromDate,
+        to_date: toDate,
+        brands: filters.brands,
+        countries: filters.countries,
+      })
+    }
+    }, [fromDate, toDate]) 
+
+  useEffect(() => {
+    setFromDate(filters.from_date)
+    setToDate(filters.to_date)
+  }, [filters.from_date, filters.to_date])
 
   const handleQuickDate = (type: 'today' | 'yesterday' | 'last7days') => {
     const today = new Date()
@@ -132,11 +154,12 @@ export function Filters() {
       <span className="text-gray-400 text-xs">Select Brand</span>
       <select
         value={selectedBrand}
-        onChange={(e) => setSelectedBrand(e.target.value)}
+        onChange={(e) => handleBrandChange(e.target.value)}
         disabled={loadingFilterOptions}
+        required
         className="px-2 py-1 text-xs border border-gray-200 rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
       >
-        <option value="">All Brands</option>
+        <option value="" disabled>Select Brand</option>
         {filterOptions.brands.map(brand => (
           <option key={brand.code} value={brand.code}>
             {brand.name}
@@ -147,12 +170,13 @@ export function Filters() {
       {/* Country Select */}
       <select
         value={selectedCountry}
-        onChange={(e) => setSelectedCountry(e.target.value)}
-        disabled={loadingFilterOptions}
+        onChange={(e) => handleCountryChange(e.target.value)}
+        disabled={loadingFilterOptions || !selectedBrand}
+        required
         className="px-2 py-1 text-xs border border-gray-200 rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
       >
-        <option value="">All Countries</option>
-        {filterOptions.countries.map(country => (
+        <option value="" disabled>Select Country</option>
+        {availableCountries.map(country => (
           <option key={country.code} value={country.code}>
             {country.name}
           </option>

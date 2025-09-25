@@ -14,6 +14,7 @@ import {
   TrendingUp,
   Shield
 } from 'lucide-react';
+import { getBasePath } from '@/lib/utils';
 
 interface StageAnalysis {
   stage: string;
@@ -31,9 +32,13 @@ interface OrderDetails {
   shipping_status: string;
   confirmation_status: string;
   placed_time: string;
+  placed_time_local: string | null;
   processed_time: string | null;
+  processed_time_local: string | null;
   shipped_time: string | null;
+  shipped_time_local: string | null;
   delivered_time: string | null;
+  delivered_time_local: string | null;
   processed_tat: string | null;
   shipped_tat: string | null;
   delivered_tat: string | null;
@@ -55,6 +60,7 @@ interface OrderDetails {
   };
   current_stage: string;
   overall_sla_status: string;
+  breach_severity: string;
   sla_analysis: StageAnalysis[];
   updated_at: string;
 }
@@ -88,8 +94,7 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
     setError(null);
     
     try {
-      const basePath = process.env.NEXT_PUBLIC_BASE_PATH;
-      const response = await fetch(`${basePath}/api/v1/orders/${orderNo}`);
+      const   response = await fetch(`${getBasePath()}/api/v1/orders/${orderNo}`);
       const data = await response.json();
       
       if (!response.ok) {
@@ -111,6 +116,26 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
     } catch {
       return 'Invalid date';
     }
+  };
+
+  // Format local time with fallback to UTC formatting
+  const formatLocalDateTime = (localTimeString: string | null, utcTimeString: string | null) => {
+    if (localTimeString) {
+      // Local time is already formatted as "YYYY-MM-DD HH:mm:ss (CC)"
+      // Convert to a more readable format
+      try {
+        const match = localTimeString.match(/^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2}) \((\w+)\)$/);
+        if (match) {
+          const [, datePart, timePart, timezone] = match;
+          const date = new Date(`${datePart}T${timePart}`);
+          return `${format(date, 'MMM dd, yyyy HH:mm:ss')} (${timezone})`;
+        }
+        return localTimeString; // Return as-is if format doesn't match
+      } catch {
+        return formatDateTime(utcTimeString); // Fallback to UTC
+      }
+    }
+    return formatDateTime(utcTimeString); // Fallback to UTC formatting
   };
 
   const formatCurrency = (amount: number | null, currency: string) => {
@@ -216,6 +241,12 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
               <div className="text-right">
                 <p className="text-gray-500 dark:text-gray-400 text-sm">SLA Status</p>
                 <div className="flex items-center gap-2 mt-1">
+                  {orderDetails.breach_severity && orderDetails.breach_severity == 'Urgent' && (
+                    <span className="inline-flex items-center font-medium rounded-full border bg-purple-100 dark:bg-purple-900/30 text-purple-800 dark:text-purple-300 border-purple-200 dark:border-purple-700 text-sm px-2 py-0.5">{orderDetails.breach_severity}</span>
+                  )}
+                  {orderDetails.breach_severity && orderDetails.breach_severity == 'Critical' && (
+                    <span className="inline-flex items-center font-medium rounded-full border bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300 border-red-200 dark:border-red-700 text-sm px-2 py-0.5">{orderDetails.breach_severity}</span>
+                  )}
                   {getOverallSLAIcon(orderDetails.overall_sla_status)}
                   <span className="font-medium text-gray-900 dark:text-white">{orderDetails.overall_sla_status}</span>
                 </div>
@@ -454,7 +485,7 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
                     </div>
                     <div className="flex-1 bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4 border border-gray-200 dark:border-gray-600">
                       <p className="font-semibold text-gray-900 dark:text-white">Order Placed</p>
-                      <p className="text-gray-600 dark:text-gray-300">{formatDateTime(orderDetails.placed_time)}</p>
+                      <p className="text-gray-600 dark:text-gray-300">{formatLocalDateTime(orderDetails.placed_time_local, orderDetails.placed_time)}</p>
                     </div>
                   </div>
                   
@@ -465,7 +496,7 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
                       </div>
                       <div className="flex-1 bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4 border border-gray-200 dark:border-gray-600">
                         <p className="font-semibold text-gray-900 dark:text-white">Order Synced to OMS</p>
-                        <p className="text-gray-600 dark:text-gray-300">{formatDateTime(orderDetails.processed_time)}</p>
+                        <p className="text-gray-600 dark:text-gray-300">{formatLocalDateTime(orderDetails.processed_time_local, orderDetails.processed_time)}</p>
                         {orderDetails.processed_tat && (
                           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">TAT: {orderDetails.processed_tat}</p>
                         )}
@@ -480,7 +511,7 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
                       </div>
                       <div className="flex-1 bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4 border border-gray-200 dark:border-gray-600">
                         <p className="font-semibold text-gray-900 dark:text-white">Order Shipped</p>
-                        <p className="text-gray-600 dark:text-gray-300">{formatDateTime(orderDetails.shipped_time)}</p>
+                        <p className="text-gray-600 dark:text-gray-300">{formatLocalDateTime(orderDetails.shipped_time_local, orderDetails.shipped_time)}</p>
                         {orderDetails.shipped_tat && (
                           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">TAT: {orderDetails.shipped_tat}</p>
                         )}
@@ -495,7 +526,7 @@ export const OrderDetailsModal: React.FC<OrderDetailsModalProps> = ({
                       </div>
                       <div className="flex-1 bg-gray-50 dark:bg-gray-700/50 rounded-lg p-4 border border-gray-200 dark:border-gray-600">
                         <p className="font-semibold text-gray-900 dark:text-white">Order Delivered</p>
-                        <p className="text-gray-600 dark:text-gray-300">{formatDateTime(orderDetails.delivered_time)}</p>
+                        <p className="text-gray-600 dark:text-gray-300">{formatLocalDateTime(orderDetails.delivered_time_local, orderDetails.delivered_time)}</p>
                         {orderDetails.delivered_tat && (
                           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">TAT: {orderDetails.delivered_tat}</p>
                         )}

@@ -1,13 +1,52 @@
 "use client"
 
-import React, { useState, useEffect, Suspense } from "react"
+import React, { useState, useEffect, Suspense, useMemo } from "react"
 import { format } from "date-fns"
-import { Download, ArrowLeft, Filter, Package, Moon, Sun } from "lucide-react"
+import { Download, ArrowLeft, Filter, Package, Moon, Sun, Loader2 } from "lucide-react"
 import Link from "next/link"
 import { useTheme } from 'next-themes'
-// import { OrderFilters } from "@/lib/types" // Not needed with new filter structure
 import { useSearchParams } from "next/navigation"
 import { OrderDetailsModal } from '@/components/orders/order-details-modal'
+import { getBasePath } from "@/lib/utils"
+import ProtectedRoute from '@/components/auth/protected-route'
+
+// Helper function to format local time string for display
+const formatLocalTime = (localTimeString: string | null | undefined, utcTime: string | Date | null | undefined) => {
+  if (localTimeString) {
+    try {
+      const match = localTimeString.match(/^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2}) \((\w+)\)$/);
+      if (match) {
+        const [, datePart, timePart] = match;
+        const date = new Date(`${datePart}T${timePart}`);
+        return format(date, 'yyyy-MM-dd HH:mm');
+      }
+      return localTimeString;
+    } catch {
+      // Fallback to UTC if local time parsing fails
+      return utcTime ? format(new Date(utcTime), 'yyyy-MM-dd HH:mm') : '';
+    }
+  }
+  return utcTime ? format(new Date(utcTime), 'yyyy-MM-dd HH:mm') : '';
+}
+
+// Helper function for readable timeline format
+const formatLocalTimeReadable = (localTimeString: string | null | undefined, utcTime: string | Date | null | undefined) => {
+  if (localTimeString) {
+    try {
+      const match = localTimeString.match(/^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2}) \((\w+)\)$/);
+      if (match) {
+        const [, datePart, timePart, timezone] = match;
+        const date = new Date(`${datePart}T${timePart}`);
+        return `${format(date, 'MMM dd, yyyy HH:mm')} (${timezone})`;
+      }
+      return localTimeString;
+    } catch {
+      // Fallback to UTC if local time parsing fails
+      return utcTime ? format(new Date(utcTime), 'MMM dd, yyyy HH:mm') : '';
+    }
+  }
+  return utcTime ? format(new Date(utcTime), 'MMM dd, yyyy HH:mm') : '';
+}
 
 // Enhanced UI Components
 const Button = ({ 
@@ -151,9 +190,13 @@ interface Order {
   shipping_status: string
   confirmation_status: string
   order_date: Date | string
+  order_date_local?: string | null
   processed_time?: Date | string | null
+  processed_time_local?: string | null
   shipped_time?: Date | string | null
+  shipped_time_local?: string | null
   delivered_time?: Date | string | null
+  delivered_time_local?: string | null
   processed_tat?: string | null
   shipped_tat?: string | null
   delivered_tat?: string | null
@@ -161,6 +204,7 @@ interface Order {
   country_code: string
   current_stage: string
   sla_status: string
+    breach_severity?: 'None' | 'Urgent' | 'Critical'
   pending_status: string
   pending_hours: number
   config_processed_tat?: string | null
@@ -203,9 +247,11 @@ function OrdersContent() {
   const searchParams = useSearchParams()
   const [orders, setOrders] = useState<Order[]>([])
   const [loading, setLoading] = useState(true)
+  const [exportLoading, setExportLoading] = useState(false)
   const [showFilters, setShowFilters] = useState(false)
   const [mounted, setMounted] = useState(false)
   const { theme, setTheme } = useTheme()
+  const [filtersCleared, setFiltersCleared] = useState(false)
 
   useEffect(() => {
     setMounted(true)
@@ -221,19 +267,25 @@ function OrdersContent() {
     direction: 'desc'
   })
   
-  // Enhanced Filter State
-  const [filters, setFilters] = useState<FilterState>(() => ({
-    search: "",
-    sla_status: searchParams.get('sla_status') || '',
-    stage: searchParams.get('stage') || '',
-    pending_status: searchParams.get('pending_status') || '',
-    fulfilment_status: searchParams.get('fulfilment_status') || '',
-    brand: searchParams.get('brand') || '',
-    country: searchParams.get('country') || '',
-    from_date: searchParams.get('from_date') || '',
-    to_date: searchParams.get('to_date') || '',
-    order_status: searchParams.get('order_status') || ''
-  }))
+  // Enhanced Filter State - Initialize from URL parameters
+  const [filters, setFilters] = useState<FilterState>(() => {
+    // Parse URL parameters to initialize filters
+    const urlParams = new URLSearchParams(searchParams.toString())
+    const severity = urlParams.get('severity') || ''
+    
+    return {
+      search: urlParams.get('search') || "",
+      sla_status: severity || urlParams.get('sla_status') || '',
+      stage: urlParams.get('stage') || '',
+      pending_status: urlParams.get('pending_status') || '',
+      fulfilment_status: urlParams.get('fulfilment_status') || '',
+      brand: urlParams.get('brand') || '',
+      country: urlParams.get('country') || '',
+      from_date: urlParams.get('from_date') || '',
+      to_date: urlParams.get('to_date') || '',
+      order_status: urlParams.get('order_status') || ''
+    }
+  })
   
   // Get kpi_mode from URL parameters
   const kpiMode = searchParams.get('kpi_mode') === 'true'
@@ -245,22 +297,56 @@ function OrdersContent() {
     limit: 20
   })
 
+  // Page size options for dropdown
+  const pageSizeOptions = [
+    { value: 20, label: '20 per page' },
+    { value: 50, label: '50 per page' },
+    { value: 100, label: '100 per page' }
+  ]
+
   // Filter Options State (like dashboard)
   const [filterOptions, setFilterOptions] = useState<{
     brands: Array<{ code: string; name: string }>;
-    countries: Array<{ code: string; name: string }>;
+    brandCountries: Record<string, Array<{ code: string; name: string }>>;
   }>({
     brands: [],
-    countries: []
+    brandCountries: {}
   })
   const [loadingFilterOptions, setLoadingFilterOptions] = useState(true)
-  const basePath = process.env.NEXT_PUBLIC_BASE_PATH;
+  const basePath = getBasePath();
+
+  // Get available countries for the selected brand
+  const availableCountries = useMemo(() => {
+    return filters.brand && filterOptions.brandCountries[filters.brand] 
+      ? filterOptions.brandCountries[filters.brand] 
+      : []
+  }, [filters.brand, filterOptions.brandCountries])
+
+  // Update filters when URL parameters change
+  useEffect(() => {
+    const urlParams = new URLSearchParams(searchParams.toString())
+    const severity = urlParams.get('severity') || ''
+    
+    setFilters(prev => ({
+      ...prev,
+      // Map severity (Urgent/Critical) to sla_status on load
+      sla_status: severity || urlParams.get('sla_status') || prev.sla_status,
+      stage: urlParams.get('stage') || prev.stage,
+      pending_status: urlParams.get('pending_status') || prev.pending_status,
+      fulfilment_status: urlParams.get('fulfilment_status') || prev.fulfilment_status,
+      brand: urlParams.get('brand') || prev.brand,
+      country: urlParams.get('country') || prev.country,
+      from_date: urlParams.get('from_date') || prev.from_date,
+      to_date: urlParams.get('to_date') || prev.to_date,
+      order_status: urlParams.get('order_status') || prev.order_status
+    }))
+  }, [searchParams])
 
   // Fetch filter options from dashboard API
   const fetchFilterOptions = async () => {
     setLoadingFilterOptions(true)
     try {
-      const response = await fetch(`${basePath}/api/v1/dashboard/filters`)
+      const response = await fetch(`${basePath}/api/v1/dashboard/filters/`)
       if (!response.ok) {
         console.warn(`Filter options API returned ${response.status}, using fallback`)
       }
@@ -268,7 +354,7 @@ function OrdersContent() {
       const data = await response.json()
       setFilterOptions({
         brands: data.brands || [],
-        countries: data.countries || []
+        brandCountries: data.brandCountries || {}
       })
     } catch (err) {
       console.error('Error fetching filter options:', err)
@@ -278,10 +364,16 @@ function OrdersContent() {
           { code: 'vs', name: "Victoria's Secret" },
           { code: 'bbw', name: 'Bath & Body Works' }
         ],
-        countries: [
-          { code: 'MY', name: 'Malaysia' },
-          { code: 'SG', name: 'Singapore' }
-        ]
+        brandCountries: {
+          'vs': [
+            { code: 'MY', name: 'Malaysia' },
+            { code: 'SG', name: 'Singapore' }
+          ],
+          'bbw': [
+            { code: 'MY', name: 'Malaysia' },
+            { code: 'SG', name: 'Singapore' }
+          ]
+        }
       })
     } finally {
       setLoadingFilterOptions(false)
@@ -297,7 +389,9 @@ function OrdersContent() {
   const slaStatusOptions = [
     { value: "On Time", label: "On Time" },
     { value: "At Risk", label: "At Risk" },
-    { value: "Breached", label: "Breached" }
+    { value: "Breached", label: "Breached" },
+    { value: "Urgent", label: "Urgent" },
+    { value: "Critical", label: "Critical" }
   ]
 
   const stageOptions = [
@@ -307,11 +401,11 @@ function OrdersContent() {
     { value: "Delivered", label: "Delivered" }
   ]
 
-  // FIXED: Better pending status options with clearer operational language
-  const pendingStatusOptions = [
-    { value: "pending", label: "🚨 Action Required (Overdue)" },
-    { value: "normal", label: "✅ On Track (Within Thresholds)" }
-  ]
+  // pending status options
+  // const pendingStatusOptions = [
+  //   { value: "pending", label: "🚨 Action Required (Overdue)" },
+  //   { value: "normal", label: "✅ On Track (Within Thresholds)" }
+  // ]
 
   // Fulfilment Status Options
   const fulfilmentStatusOptions = [
@@ -324,12 +418,22 @@ function OrdersContent() {
     try {
       const params = new URLSearchParams({
         page: page.toString(),
-        limit: pagination.limit.toString(),
         confirmation_status: 'CONFIRMED' // Only show confirmed orders
       })
       
+      // Add limit parameter
+      params.append('limit', pagination.limit.toString())
+      
       if (currentFilters.search) params.append('order_no', currentFilters.search)
-      if (currentFilters.sla_status) params.append('sla_status', currentFilters.sla_status)
+      // If user selects Urgent/Critical, pass it via dedicated severity param for server-side filtering across pages
+      const isSeverityFilter = currentFilters.sla_status === 'Urgent' || currentFilters.sla_status === 'Critical'
+      if (currentFilters.sla_status) {
+        if (isSeverityFilter) {
+          params.append('severity', currentFilters.sla_status)
+        } else {
+          params.append('sla_status', currentFilters.sla_status)
+        }
+      }
       
       // Handle stage filtering based on fulfilment_status
       let stageFilter = currentFilters.stage
@@ -381,22 +485,41 @@ function OrdersContent() {
 
   useEffect(() => {
     fetchOrders(filters, pagination.page)
-  }, [filters, pagination.page])
+  }, [filters, pagination.page, pagination.limit])
 
   const handleFilterChange = (key: keyof FilterState, value: string) => {
     setFilters(prev => ({ ...prev, [key]: value }))
     setPagination(prev => ({ ...prev, page: 1 })) // Reset to first page
+    setFiltersCleared(false)
   }
 
   const clearFilters = () => {
-    setFilters({
-      search: "", sla_status: "", stage: "", pending_status: "", fulfilment_status: "",
-      brand: "", country: "", from_date: "", to_date: "", order_status: ""
-    })
+    setFilters(prev => ({
+      search: "",
+      sla_status: "",
+      stage: "",
+      pending_status: "",
+      fulfilment_status: "",
+      brand: prev.brand,
+      country: prev.country,
+      from_date: "",
+      to_date: "",
+      order_status: ""
+    }))
+    setPagination(prev => ({ ...prev, page: 1 }))
+    setFiltersCleared(true)
   }
 
   const handlePageChange = (newPage: number) => {
     setPagination(prev => ({ ...prev, page: newPage }))
+  }
+
+  const handlePageSizeChange = (newLimit: number) => {
+    setPagination(prev => ({ 
+      ...prev, 
+      limit: newLimit,
+      page: 1 // Reset to first page when changing page size
+    }))
   }
 
   const handleOrderClick = (orderNo: string) => {
@@ -411,8 +534,33 @@ function OrdersContent() {
 
   // New function to calculate stage analysis for all milestones
   const calculateStageAnalysis = (order: Order) => {
-    const now = new Date();
-    const orderDate = new Date(order.order_date);
+    // Use local time strings for accurate timezone-aware calculations
+    const getCurrentTimeInTimezone = (countryCode: string) => {
+      const timezoneMap: Record<string, string> = {
+        'MY': 'Asia/Kuala_Lumpur',
+        'SG': 'Asia/Singapore', 
+        'TH': 'Asia/Bangkok',
+        'ID': 'Asia/Jakarta',
+        'PH': 'Asia/Manila',
+        'HK': 'Asia/Hong_Kong',
+        'AU': 'Australia/Sydney',
+        'NZ': 'Pacific/Auckland',
+        'VN': 'Asia/Ho_Chi_Minh'
+      };
+      const timezone = timezoneMap[countryCode] || 'Asia/Hong_Kong';
+      return new Date().toLocaleString('sv-SE', { timeZone: timezone, hour12: false });
+    };
+    
+    // Parse local time string to Date object
+    const parseLocalTimeString = (localTimeString: string | null | undefined): Date | null => {
+      if (!localTimeString) return null;
+      const cleanTime = localTimeString.replace(/\s*\([^)]+\)$/, '');
+      return new Date(cleanTime.replace(' ', 'T'));
+    };
+    
+    const orderDateLocal = parseLocalTimeString(order.order_date_local) || new Date(order.order_date);
+    const currentTimeString = getCurrentTimeInTimezone(order.country_code);
+    const now = new Date(currentTimeString.replace(' ', 'T'));
     
     // Helper function to format minutes to readable time
     const formatMinutesToTime = (minutes: number): string => {
@@ -467,7 +615,8 @@ function OrdersContent() {
     
     if (order.processed_time) {
       // Order has been processed - check if it was on time
-      const actualProcessingMinutes = getTimeDifferenceMinutes(orderDate, new Date(order.processed_time));
+      const processedTimeLocal = parseLocalTimeString(order.processed_time_local) || new Date(order.processed_time);
+      const actualProcessingMinutes = getTimeDifferenceMinutes(orderDateLocal, processedTimeLocal);
       let status: 'On Time' | 'At Risk' | 'Breached';
       let exceededBy: string | null = null;
       
@@ -487,7 +636,7 @@ function OrdersContent() {
       });
     } else {
       // Order hasn't been processed yet - check if it should have been
-      const timeSinceOrder = getTimeDifferenceMinutes(orderDate, now);
+      const timeSinceOrder = getTimeDifferenceMinutes(orderDateLocal, now);
       let status: 'On Time' | 'At Risk' | 'Breached';
       let exceededBy: string | null = null;
       
@@ -512,7 +661,8 @@ function OrdersContent() {
     
     if (order.shipped_time) {
       // Order has been shipped - check if it was on time (total time from order placement)
-      const actualShippingMinutes = getTimeDifferenceMinutes(orderDate, new Date(order.shipped_time));
+      const shippedTimeLocal = parseLocalTimeString(order.shipped_time_local) || new Date(order.shipped_time);
+      const actualShippingMinutes = getTimeDifferenceMinutes(orderDateLocal, shippedTimeLocal);
       let status: 'On Time' | 'At Risk' | 'Breached';
       let exceededBy: string | null = null;
       
@@ -532,7 +682,7 @@ function OrdersContent() {
       });
     } else if (order.processed_time) {
       // Order processed but not shipped yet - check current status
-      const timeSinceOrder = getTimeDifferenceMinutes(orderDate, now);
+      const timeSinceOrder = getTimeDifferenceMinutes(orderDateLocal, now);
       let status: 'On Time' | 'At Risk' | 'Breached';
       let exceededBy: string | null = null;
       
@@ -565,7 +715,8 @@ function OrdersContent() {
     
     if (order.delivered_time) {
       // Order has been delivered - check if it was on time (total time from order placement)
-      const actualDeliveryMinutes = getTimeDifferenceMinutes(orderDate, new Date(order.delivered_time));
+      const deliveredTimeLocal = parseLocalTimeString(order.delivered_time_local) || new Date(order.delivered_time);
+      const actualDeliveryMinutes = getTimeDifferenceMinutes(orderDateLocal, deliveredTimeLocal);
       let status: 'On Time' | 'At Risk' | 'Breached';
       let exceededBy: string | null = null;
       
@@ -585,7 +736,7 @@ function OrdersContent() {
       });
     } else if (order.shipped_time) {
       // Order shipped but not delivered yet - check current status
-      const timeSinceOrder = getTimeDifferenceMinutes(orderDate, now);
+      const timeSinceOrder = getTimeDifferenceMinutes(orderDateLocal, now);
       let status: 'On Time' | 'At Risk' | 'Breached';
       let exceededBy: string | null = null;
       
@@ -711,7 +862,17 @@ function OrdersContent() {
     }
 
     // Just show traditional SLA status
-    return getSLABadge(order.sla_status);
+    return (
+      <div className="flex items-center gap-2">
+        {getSLABadge(order.sla_status)}
+        {order.breach_severity === 'Critical' && (
+          <Badge variant="danger" size="sm">Critical</Badge>
+        )}
+        {order.breach_severity === 'Urgent' && (
+          <Badge variant="purple" size="sm">Urgent</Badge>
+        )}
+      </div>
+    );
   }
 
   // Enhanced Fulfilment Badge that shows both fulfilment status and pending information
@@ -744,38 +905,109 @@ function OrdersContent() {
     );
   }
 
-  const exportToCSV = () => {
-    const headers = [
-      'Order No', 'Current Stage', 'SLA Status', 'Actionable Status', 'Fulfilment Status', 'Brand', 'Country', 
-      'Order Date', 'Processed Time', 'Shipped Time', 'Delivered Time', 'Pending Hours'
-    ]
-    
-    const csvData = orders.map(order => [
-      order.order_no,
-      order.current_stage,
-      order.sla_status,
-      getActionableStatus(order),
-      order.current_stage === 'Delivered' ? 'Fulfilled' : 'Not Fulfilled',
-      order.brand_name,
-      order.country_code,
-      format(new Date(order.order_date), 'yyyy-MM-dd'),
-      order.processed_time ? format(new Date(order.processed_time), 'yyyy-MM-dd HH:mm') : '',
-      order.shipped_time ? format(new Date(order.shipped_time), 'yyyy-MM-dd HH:mm') : '',
-      order.delivered_time ? format(new Date(order.delivered_time), 'yyyy-MM-dd HH:mm') : '',
-      order.pending_hours
-    ])
+  const exportToCSV = async () => {
+    setExportLoading(true)
+    try {
+      // Fetch all orders using export-limit
+      const params = new URLSearchParams({
+        'export-limit': '10000',
+      })
+      
+      // Apply same filters as current view
+      if (filters.search) params.append('order_no', filters.search)
+      const isSeverityFilter = filters.sla_status === 'Urgent' || filters.sla_status === 'Critical'
+      if (filters.sla_status) {
+        if (isSeverityFilter) {
+          params.append('severity', filters.sla_status)
+        } else {
+          params.append('sla_status', filters.sla_status)
+        }
+      }
+      
+      let stageFilter = filters.stage
+      if (filters.fulfilment_status === 'fulfilled') {
+        stageFilter = 'Delivered'
+      } else if (filters.fulfilment_status === 'not_fulfilled') {
+        stageFilter = filters.stage
+      }
+      
+      if (stageFilter) params.append('stage', stageFilter)
+      if (filters.pending_status) params.append('pending_status', filters.pending_status)
+      if (filters.brand) params.append('brand', filters.brand)
+      if (filters.country) params.append('country', filters.country)
+      if (filters.from_date) params.append('from_date', filters.from_date)
+      if (filters.to_date) params.append('to_date', filters.to_date)
+      if (filters.order_status) params.append('order_status', filters.order_status)
+      
+      if (kpiMode) params.append('kpi_mode', 'true')
 
-    const csvContent = [headers, ...csvData]
-      .map(row => row.map(cell => `"${cell}"`).join(','))
-      .join('\n')
+      const exportUrl = `${basePath}/api/v1/orders?${params}`
+      
+      const response = await fetch(exportUrl)
+      if (!response.ok) {
+        const errorText = await response.text()
+        throw new Error(`Failed to fetch orders for export: ${response.status} ${errorText}`)
+      }
+      
+      const data: OrdersResponse = await response.json()
+      let exportOrders = data.orders
+      
+      if (filters.fulfilment_status === 'not_fulfilled') {
+        exportOrders = data.orders.filter(order => order.current_stage !== 'Delivered')
+      }
 
-    const blob = new Blob([csvContent], { type: 'text/csv' })
-    const url = window.URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `orders-${format(new Date(), 'yyyy-MM-dd-HHmm')}.csv`
-    a.click()
-    window.URL.revokeObjectURL(url)
+      const headers = [
+        'Order No', 'Current Milestone', 'Next Milestone', 'SLA Status', 'Fulfilment Status', 'Brand', 'Country', 
+        'Order Date', 'OMS Synced Time', 'Shipped Time', 'Delivered Time'
+      ]
+
+      const getNextMilestone = (currentStage: string) => {
+        switch (currentStage) {
+        case 'Not Synced to OMS':
+          return 'OMS Synced'
+        case 'OMS Synced':
+          return 'Shipped'
+        case 'Shipped':
+          return 'Delivered'
+        default:
+          return 'N/A'
+        }
+      }
+
+      const csvData = exportOrders.map(order => [
+        order.order_no,
+        order.current_stage,
+        getNextMilestone(order.current_stage),
+        order.sla_status,
+        order.current_stage === 'Delivered' ? 'Fulfilled' : 'Not Fulfilled',
+        order.brand_name,
+        order.country_code,
+        formatLocalTime(order.order_date_local, order.order_date),
+        formatLocalTime(order.processed_time_local, order.processed_time),
+        formatLocalTime(order.shipped_time_local, order.shipped_time),
+        formatLocalTime(order.delivered_time_local, order.delivered_time)
+      ])
+
+      const csvContent = [headers, ...csvData]
+        .map(row => row.map(cell => `"${cell}"`).join(','))
+        .join('\n')
+
+      const blob = new Blob([csvContent], { type: 'text/csv' })
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      const fileName = `orders-${filters.brand}-${filters.country}-${format(new Date(), 'yyyy-MM-dd-HHmm')}.csv`
+      a.download = fileName
+      a.click()
+      window.URL.revokeObjectURL(url)
+      
+      console.log('Export: Successfully exported', exportOrders.length, 'orders to', fileName)
+    } catch (error) {
+      console.error('Error exporting orders:', error)
+      alert('Failed to export orders. Please try again.')
+    } finally {
+      setExportLoading(false)
+    }
   }
 
   const activeFiltersCount = Object.entries(filters).filter(([key, value]) => 
@@ -927,12 +1159,15 @@ function OrdersContent() {
 
   const { title, subtitle } = getDynamicTitle();
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 dark:from-black dark:to-black p-6 transition-colors duration-200">
-      <div className="mx-auto space-y-6 container px-4 py-8">
+    <div className="min-h-screen w-full bg-gradient-to-br from-gray-50 to-gray-100 dark:from-black dark:to-black p-6 transition-colors duration-200">
+      <div className="mx-auto space-y-6 px-4 py-8">
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex items-center gap-4">
-            <Link href={`/`}>
+            <Link href={`/?${new URLSearchParams({
+              ...(filters.brand && { brand: filters.brand }),
+              ...(filters.country && { country: filters.country })
+            }).toString()}`}>
               <Button variant="ghost" icon={<ArrowLeft className="h-4 w-4" />}>
                 Dashboard
               </Button>
@@ -952,17 +1187,21 @@ function OrdersContent() {
             {/* Export Button */}
             <button
               onClick={exportToCSV}
-              disabled={orders.length === 0}
-              className="p-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm text-gray-700 dark:text-gray-300 hover:bg-white dark:hover:bg-gray-700 hover:shadow-md transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-              aria-label="Export to CSV"
+              disabled={exportLoading}
+              className={`p-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm text-gray-700 dark:text-gray-300 hover:bg-white dark:hover:bg-gray-700 hover:shadow-md transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed ${orders.some(order => order.current_stage === 'Delivered') || activeFiltersCount === 0 || filtersCleared || orders.length === 0 ? 'hidden' : ''}`}
+              aria-label={exportLoading ? "Exporting..." : "Export to CSV"}
             >
-              <Download className="h-5 w-5" />
+              {exportLoading ? (
+                <Loader2 className="h-5 w-5 animate-spin" />
+              ) : (
+                <Download className="h-5 w-5" />
+              )}
             </button>
             
             {/* Theme Toggle */}
             <button
               onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-              className="p-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm text-gray-700 dark:text-gray-300 hover:bg-white dark:hover:bg-gray-700 hover:shadow-md transition-all duration-200"
+              className="hidden p-3 rounded-xl border border-gray-200 dark:border-gray-700 bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm text-gray-700 dark:text-gray-300 hover:bg-white dark:hover:bg-gray-700 hover:shadow-md transition-all duration-200"
               aria-label="Toggle theme"
               suppressHydrationWarning
             >
@@ -979,7 +1218,7 @@ function OrdersContent() {
          <div className="bg-white/60 dark:bg-gray-800/60 backdrop-blur-sm rounded-xl border border-gray-200 dark:border-gray-700 p-4 shadow-sm">
           <div className="flex items-center gap-3 text-sm flex-wrap">
             {/* Quick Date Filters */}
-            <div className="flex gap-1">
+            {/* <div className="flex gap-1">
               <button
                 onClick={() => {
                   const today = format(new Date(), 'yyyy-MM-dd')
@@ -1020,62 +1259,81 @@ function OrdersContent() {
               >
                 Last 7 Days
               </button>
-            </div>
+            </div> */}
 
             {/* Date Inputs */}
-            <input
-              type="date"
-              value={filters.from_date}
-              onChange={(e) => handleFilterChange('from_date', e.target.value)}
-              className="px-2 py-1 text-xs border border-gray-200 rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-            />
-            <span className="text-gray-400 text-xs">to</span>
-            <input
-              type="date"
-              value={filters.to_date}
-              onChange={(e) => handleFilterChange('to_date', e.target.value)}
-              className="px-2 py-1 text-xs border border-gray-200 rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-            />
+            <div className="flex items-center gap-2">
+              <label htmlFor="from_date" className="text-xs text-gray-600 dark:text-gray-300">From</label>
+              <input
+                id="from_date"
+                type="date"
+                value={filters.from_date}
+                onChange={(e) => handleFilterChange('from_date', e.target.value)}
+                className="px-2 py-1 text-xs border border-gray-200 rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              <label htmlFor="to_date" className="text-xs text-gray-600 dark:text-gray-300">To</label>
+              <input
+                id="to_date"
+                type="date"
+                value={filters.to_date}
+                onChange={(e) => handleFilterChange('to_date', e.target.value)}
+                className="px-2 py-1 text-xs border border-gray-200 rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+              />
+            </div>
 
             {/* Search */}
-            <input
-              type="text"
-              placeholder="Search orders..."
-              value={filters.search}
-              onChange={(e) => handleFilterChange('search', e.target.value)}
-              className="px-2 py-1 text-xs border border-gray-200 rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white placeholder-gray-400"
-            />
+            <div className="flex items-center gap-2">
+              <label htmlFor="search_orders" className="text-xs text-gray-600 dark:text-gray-300">Search By Order No</label>
+              <input
+                id="search_orders"
+                type="text"
+                placeholder="Search orders..."
+                value={filters.search}
+                onChange={(e) => handleFilterChange('search', e.target.value)}
+                className="px-2 py-1 text-xs border border-gray-200 rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white placeholder-gray-400"
+              />
+            </div>
 
             {/* SLA Status */}
-            <select
-              value={filters.sla_status}
-              onChange={(e) => handleFilterChange('sla_status', e.target.value)}
-              className="px-2 py-1 text-xs border border-gray-200 rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-            >
-              <option value="">All SLA Status</option>
-              {slaStatusOptions.map(option => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
+            <div className="flex items-center gap-2">
+              <label htmlFor="sla_status" className="text-xs text-gray-600 dark:text-gray-300">SLA</label>
+              <select
+                id="sla_status"
+                value={filters.sla_status}
+                onChange={(e) => handleFilterChange('sla_status', e.target.value)}
+                className="px-2 py-1 text-xs border border-gray-200 rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+              >
+                <option value="">All SLA Status</option>
+                {slaStatusOptions.map(option => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
 
             {/* Stage */}
-            <select
-              value={filters.stage}
-              onChange={(e) => handleFilterChange('stage', e.target.value)}
-              className="px-2 py-1 text-xs border border-gray-200 rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-            >
-              <option value="">All Stages</option>
-              {stageOptions.map(option => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
+            <div className="flex items-center gap-2">
+              <label htmlFor="stage" className="text-xs text-gray-600 dark:text-gray-300">Milestone</label>
+              <select
+                id="stage"
+                value={filters.stage}
+                onChange={(e) => handleFilterChange('stage', e.target.value)}
+                className="px-2 py-1 text-xs border border-gray-200 rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+              >
+                <option value="">All Stages</option>
+                {stageOptions.map(option => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
 
             {/* Pending Status */}
-            <select
+            {/* <select
               value={filters.pending_status}
               onChange={(e) => handleFilterChange('pending_status', e.target.value)}
               className="px-2 py-1 text-xs border border-gray-200 rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
@@ -1086,7 +1344,7 @@ function OrdersContent() {
                   {option.label}
                 </option>
               ))}
-            </select>
+            </select> */}
 
             {/* Advanced Filters Toggle */}
             <Button 
@@ -1094,7 +1352,7 @@ function OrdersContent() {
               size="sm"
               onClick={() => setShowFilters(!showFilters)}
               icon={<Filter className="h-3 w-3" />}
-              className="text-xs"
+              className="text-xs hidden"
             >
               Advanced {activeFiltersCount > 0 && `(${activeFiltersCount})`}
             </Button>
@@ -1113,7 +1371,7 @@ function OrdersContent() {
 
         {/* Advanced Filters */}
         {showFilters && (
-          <div className="bg-white/60 dark:bg-gray-800/60 backdrop-blur-sm rounded-xl border border-gray-200 dark:border-gray-700 p-4 shadow-sm">
+          <div className="bg-white/60 dark:bg-gray-800/60 backdrop-blur-sm rounded-xl border border-gray-200 dark:border-gray-700 p-4 shadow-sm hidden">
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-medium text-gray-900 dark:text-white">Advanced Filters</h3>
               <button 
@@ -1147,7 +1405,7 @@ function OrdersContent() {
                 className={`px-2 py-1 text-xs border border-gray-200 rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white ${loadingFilterOptions ? "opacity-50" : ""}`}
               >
                 <option value="">{loadingFilterOptions ? "Loading..." : "All Countries"}</option>
-                {filterOptions.countries.map(country => (
+                {availableCountries.map(country => (
                   <option key={country.code} value={country.code}>
                     {country.name}
                   </option>
@@ -1186,7 +1444,23 @@ function OrdersContent() {
                 </span>
               </span>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-4">
+              {/* Page Size Dropdown */}
+              <div className="flex items-center gap-2">
+                <label htmlFor="page-size" className="text-xs text-gray-600 dark:text-gray-300">Show:</label>
+                <select
+                  id="page-size"
+                  value={pagination.limit}
+                  onChange={(e) => handlePageSizeChange(parseInt(e.target.value))}
+                  className="px-2 py-1 text-xs border border-gray-200 rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                >
+                  {pageSizeOptions.map(option => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
               <span>Page {pagination.page} of {pagination.total_pages}</span>
             </div>
           </div>
@@ -1269,8 +1543,7 @@ function OrdersContent() {
                     stageAnalysis.forEach((stage) => {
                       if (stage.stage === 'OMS Sync') {
                         if (order.processed_time) {
-                          const processedDate = new Date(order.processed_time);
-                          let line = `Synced to OMS: ${format(processedDate, 'MMM dd, yyyy HH:mm')}`;
+                          let line = `Synced to OMS: ${formatLocalTimeReadable(order.processed_time_local, order.processed_time)}`;
                           if (stage.exceeded_by) {
                             line += ` (was +${stage.exceeded_by} over SLA)`;
                           }
@@ -1284,8 +1557,7 @@ function OrdersContent() {
                         }
                       } else if (stage.stage === 'Shipping') {
                         if (order.shipped_time) {
-                          const shippedDate = new Date(order.shipped_time);
-                          let line = `Shipped: ${format(shippedDate, 'MMM dd, yyyy HH:mm')}`;
+                          let line = `Shipped: ${formatLocalTimeReadable(order.shipped_time_local, order.shipped_time)}`;
                           if (stage.exceeded_by) {
                             line += ` (was +${stage.exceeded_by} over SLA)`;
                           }
@@ -1299,8 +1571,7 @@ function OrdersContent() {
                         }
                       } else if (stage.stage === 'Delivery') {
                         if (order.delivered_time) {
-                          const deliveredDate = new Date(order.delivered_time);
-                          let line = `Delivered: ${format(deliveredDate, 'MMM dd, yyyy HH:mm')}`;
+                          let line = `Delivered: ${formatLocalTimeReadable(order.delivered_time_local, order.delivered_time)}`;
                           if (stage.exceeded_by) {
                             line += ` (was +${stage.exceeded_by} over SLA)`;
                           }
@@ -1329,7 +1600,7 @@ function OrdersContent() {
                         <div>
                           <div className="font-semibold text-gray-900 dark:text-white">{order.order_no}</div>
                           <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                            {format(new Date(order.order_date), 'MMM dd, yyyy, HH:mm a')}
+                            {formatLocalTimeReadable(order.order_date_local, order.order_date)}
                           </div>
                         </div>
                       </TableCell>
@@ -1444,10 +1715,10 @@ function OrdersContent() {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => handlePageChange(pagination.page - 1)}
+                  onClick={() => handlePageChange(1)}
                   disabled={pagination.page === 1}
                 >
-                  Previous
+                  First
                 </Button>
                 
                 {/* Page Numbers */}
@@ -1473,15 +1744,16 @@ function OrdersContent() {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => handlePageChange(pagination.page + 1)}
+                  onClick={() => handlePageChange(pagination.total_pages)}
                   disabled={pagination.page === pagination.total_pages}
                 >
-                  Next
+                  Last
                 </Button>
               </div>
             </div>
           </Card>
         )}
+        
       </div>
 
       {/* Order Details Modal */}
@@ -1504,7 +1776,9 @@ export default function OrdersPage() {
         </div>
       </div>
     }>
-      <OrdersContent />
+      <ProtectedRoute>
+        <OrdersContent />
+      </ProtectedRoute>
     </Suspense>
   )
 } 

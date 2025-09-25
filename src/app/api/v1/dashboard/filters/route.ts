@@ -13,7 +13,11 @@ const COUNTRY_MAPPING: Record<string, string> = {
   'sg': 'Singapore',
   'th': 'Thailand',
   'id': 'Indonesia',
-  'ph': 'Philippines'
+  'ph': 'Philippines',
+  'hk': 'Hong Kong',
+  'au': 'Australia',
+  'nz': 'New Zealand',
+  'vn': 'Vietnam'
 };
 
 const FALLBACK_DATA = {
@@ -21,10 +25,16 @@ const FALLBACK_DATA = {
     { code: 'vs', name: "Victoria's Secret" },
     { code: 'bbw', name: 'Bath & Body Works' }
   ],
-  countries: [
-    { code: 'MY', name: 'Malaysia' },
-    { code: 'SG', name: 'Singapore' }
-  ],
+  brandCountries: {
+    'vs': [
+      { code: 'MY', name: 'Malaysia' },
+      { code: 'SG', name: 'Singapore' }
+    ],
+    'bbw': [
+      { code: 'MY', name: 'Malaysia' },
+      { code: 'SG', name: 'Singapore' }
+    ]
+  },
   stages: [
     { code: 'Processed', name: 'Processed' },
     { code: 'Shipped', name: 'Shipped' },
@@ -48,23 +58,43 @@ export async function GET() {
     console.log('Filter API: Found order tables:', tables);
 
     if (tables.length > 0) {
-      // Extract brand codes and country codes from table names
+      // Extract brand codes and create brand-specific country mappings
       const brandCodes = new Set<string>();
-      const countryCodes = new Set<string>();
+      const brandCountries: Record<string, Set<string>> = {};
 
       tables.forEach(tableName => {
         const parts = tableName.replace('orders_', '').split('_');
         if (parts.length >= 2) {
           const brandCode = parts.slice(0, -1).join('_');
-          const countryCode = parts[parts.length - 1];
+          const countryCode = parts[parts.length - 1].toUpperCase();
           
           brandCodes.add(brandCode);
-          countryCodes.add(countryCode.toUpperCase());
+          
+          // Initialize brand countries mapping if not exists
+          if (!brandCountries[brandCode]) {
+            brandCountries[brandCode] = new Set<string>();
+          }
+          
+          brandCountries[brandCode].add(countryCode);
         }
       });
 
       console.log('Filter API: Extracted brand codes:', Array.from(brandCodes));
-      console.log('Filter API: Extracted country codes:', Array.from(countryCodes));
+      console.log('Filter API: Brand-specific countries:', brandCountries);
+
+      // Filter out specific brand-country combinations (rituals au and bbw nz)
+      const excludedCombinations = ['rituals_au', 'bbw_nz'];
+
+      excludedCombinations.forEach(combination => {
+        const [brandCode, countryCode] = combination.split('_');
+        if (brandCountries[brandCode]) {
+          brandCountries[brandCode].delete(countryCode.toUpperCase());
+          if (brandCountries[brandCode].size === 0) {
+            delete brandCountries[brandCode];
+            brandCodes.delete(brandCode);
+          }
+        }
+      });
 
       // Map codes to names
       const brands = Array.from(brandCodes).map(code => ({
@@ -72,14 +102,19 @@ export async function GET() {
         name: BRAND_MAPPING[code] || code.charAt(0).toUpperCase() + code.slice(1)
       }));
 
-      const countries = Array.from(countryCodes).map(code => ({
-        code: code.toUpperCase(),
-        name: COUNTRY_MAPPING[code.toLowerCase()] || code.toUpperCase()
-      }));
+      // Create brand-specific country mappings
+      const brandCountriesResult: Record<string, Array<{code: string, name: string}>> = {};
+      
+      Object.entries(brandCountries).forEach(([brandCode, countryCodes]) => {
+        brandCountriesResult[brandCode] = Array.from(countryCodes).map(code => ({
+          code: code.toUpperCase(),
+          name: COUNTRY_MAPPING[code.toLowerCase()] || code.toUpperCase()
+        }));
+      });
 
       const result = {
         brands: brands.length > 0 ? brands : FALLBACK_DATA.brands,
-        countries: countries.length > 0 ? countries : FALLBACK_DATA.countries,
+        brandCountries: Object.keys(brandCountriesResult).length > 0 ? brandCountriesResult : FALLBACK_DATA.brandCountries,
         stages: FALLBACK_DATA.stages
       };
 

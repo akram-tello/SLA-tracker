@@ -19,6 +19,8 @@ CREATE TABLE IF NOT EXISTS tat_config (
     shipped_tat VARCHAR(20) NOT NULL COMMENT 'Formatted time: e.g., "2d 5h 30m"',
     delivered_tat VARCHAR(20) NOT NULL COMMENT 'Formatted time: e.g., "7d 12h"',
     risk_pct TINYINT NOT NULL DEFAULT 80 COMMENT 'Risk percentage threshold',
+    urgent_pct SMALLINT NOT NULL DEFAULT 100 COMMENT 'Urgent threshold percentage (≥100% to <critical_pct of SLA target)',
+    critical_pct SMALLINT NOT NULL DEFAULT 150 COMMENT 'Critical threshold percentage (≥critical_pct of SLA target)',
     pic VARCHAR(255) DEFAULT NULL COMMENT 'People in charge for this brand/country combination',
     -- Pending time thresholds for each stage
     pending_not_processed_time VARCHAR(20) DEFAULT '6h' COMMENT 'Time threshold for pending in not processed stage',
@@ -66,30 +68,30 @@ CREATE TABLE IF NOT EXISTS sla_daily_summary (
 -- 3. POPULATE TAT CONFIGURATION
 -- ================================
 
-INSERT INTO tat_config (brand_name, brand_code, country_code, processed_tat, shipped_tat, delivered_tat, risk_pct, pic, pending_not_processed_time, pending_processed_time, pending_shipped_time) VALUES
+INSERT INTO tat_config (brand_name, brand_code, country_code, processed_tat, shipped_tat, delivered_tat, risk_pct, critical_pct, urgent_pct, pic, pending_not_processed_time, pending_processed_time, pending_shipped_time) VALUES
 -- Victoria's Secret
-('Victoria''s Secret', 'vs', 'MY', '10m', '2d', '5d', 80, 'Operations Team', '6h', '24h', '3d'),
-('Victoria''s Secret', 'vs', 'SG', '10m', '1d', '5d', 80, 'Operations Team', '6h', '24h', '3d'),
-('Victoria''s Secret', 'vs', 'AU', '10m', '1d', '5d', 80, 'Operations Team', '6h', '24h', '3d'),
-('Victoria''s Secret', 'vs', 'ID', '10m', '3d', '10d', 80, 'Operations Team', '6h', '24h', '3d'),
-('Victoria''s Secret', 'vs', 'TH', '10m', '2d', '8d', 80, 'Operations Team', '6h', '24h', '3d'),
+('Victoria''s Secret', 'vs', 'MY', '10m', '2d', '5d', 80, 150, 100, 'Operations Team', '6h', '24h', '3d'),
+('Victoria''s Secret', 'vs', 'SG', '10m', '1d', '5d', 80, 150, 100, 'Operations Team', '6h', '24h', '3d'),
+('Victoria''s Secret', 'vs', 'AU', '10m', '1d', '5d', 80, 150, 100, 'Operations Team', '6h', '24h', '3d'),
+('Victoria''s Secret', 'vs', 'ID', '10m', '3d', '10d', 80, 150, 100, 'Operations Team', '6h', '24h', '3d'),
+('Victoria''s Secret', 'vs', 'TH', '10m', '2d', '8d', 80, 150, 100, 'Operations Team', '6h', '24h', '3d'),
 
 -- Bath & Body Works  
-('Bath & Body Works', 'bbw', 'MY', '10m', '3d', '10d', 75, 'Operations Team', '6h', '24h', '3d'),
-('Bath & Body Works', 'bbw', 'SG', '10m', '2d', '7d', 75, 'Operations Team', '6h', '24h', '3d'),
-('Bath & Body Works', 'bbw', 'AU', '10m', '3d', '10d', 75, 'Operations Team', '6h', '24h', '3d'),
-('Bath & Body Works', 'bbw', 'HK', '10m', '2d', '7d', 75, 'Operations Team', '6h', '24h', '3d'),
-('Bath & Body Works', 'bbw', 'ID', '10m', '3d', '12d', 75, 'Operations Team', '6h', '24h', '3d'),
-('Bath & Body Works', 'bbw', 'NZ', '10m', '3d', '10d', 75, 'Operations Team', '6h', '24h', '3d'),
-('Bath & Body Works', 'bbw', 'PH', '10m', '4d', '14d', 75, 'Operations Team', '6h', '24h', '3d'),
-('Bath & Body Works', 'bbw', 'TH', '10m', '3d', '10d', 75, 'Operations Team', '6h', '24h', '3d'),
-('Bath & Body Works', 'bbw', 'VN', '10m', '3d', '12d', 75, 'Operations Team', '6h', '24h', '3d'),
+('Bath & Body Works', 'bbw', 'MY', '10m', '3d', '10d', 75, 160, 110, 'Operations Team', '6h', '24h', '3d'),
+('Bath & Body Works', 'bbw', 'SG', '10m', '2d', '7d', 75, 160, 110, 'Operations Team', '6h', '24h', '3d'),
+('Bath & Body Works', 'bbw', 'AU', '10m', '3d', '10d', 75, 150, 100, 'Operations Team', '6h', '24h', '3d'),
+('Bath & Body Works', 'bbw', 'HK', '10m', '2d', '7d', 75, 150, 100, 'Operations Team', '6h', '24h', '3d'),
+('Bath & Body Works', 'bbw', 'ID', '10m', '3d', '12d', 75, 150, 100, 'Operations Team', '6h', '24h', '3d'),
+('Bath & Body Works', 'bbw', 'NZ', '10m', '3d', '10d', 75, 150, 100, 'Operations Team', '6h', '24h', '3d'),
+('Bath & Body Works', 'bbw', 'PH', '10m', '4d', '14d', 75, 150, 100, 'Operations Team', '6h', '24h', '3d'),
+('Bath & Body Works', 'bbw', 'TH', '10m', '3d', '10d', 75, 150, 100, 'Operations Team', '6h', '24h', '3d'),
+('Bath & Body Works', 'bbw', 'VN', '10m', '3d', '12d', 75, 150, 100, 'Operations Team', '6h', '24h', '3d'),
 
 -- Rituals
-('Rituals', 'rituals', 'MY', '10m', '2d', '7d', 80, 'Logistics Team', '6h', '24h', '3d'),
-('Rituals', 'rituals', 'SG', '10m', '1d', '5d', 80, 'Logistics Team', '6h', '24h', '3d'),
-('Rituals', 'rituals', 'AU', '10m', '2d', '7d', 80, 'Logistics Team', '6h', '24h', '3d'),
-('Rituals', 'rituals', 'TH', '10m', '2d', '8d', 80, 'Logistics Team', '6h', '24h', '3d');
+('Rituals', 'rituals', 'MY', '10m', '2d', '7d', 80, 140, 90, 'Logistics Team', '6h', '24h', '3d'),
+('Rituals', 'rituals', 'SG', '10m', '1d', '5d', 80, 140, 90, 'Logistics Team', '6h', '24h', '3d'),
+('Rituals', 'rituals', 'AU', '10m', '2d', '7d', 80, 150, 100, 'Logistics Team', '6h', '24h', '3d'),
+('Rituals', 'rituals', 'TH', '10m', '2d', '8d', 80, 150, 100, 'Logistics Team', '6h', '24h', '3d');
 
 -- ================================
 -- 4. INDEX OPTIMIZATION

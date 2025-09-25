@@ -12,7 +12,7 @@ export async function GET(request: NextRequest) {
     const fromDate = searchParams.get('from_date');
     const toDate = searchParams.get('to_date');
 
-    console.log('Dashboard API params:', { brand, country, fromDate, toDate });
+    console.log(`[${new Date().toISOString()}] Dashboard V2 API called with params:`, { brand, country, fromDate, toDate });
 
     // Get available order tables
     const [tableRows] = await db.execute(`
@@ -61,35 +61,25 @@ export async function GET(request: NextRequest) {
     if (tables.length === 0) {
       return NextResponse.json({
         kpis: {
-          total_orders: 0,
-          on_time_orders: 0,
-          on_risk_orders: 0,
-          breached_orders: 0,
-          action_required_breached_processed: 0,
-          action_required_breached_shipped: 0,
-          action_required_breached_delivered: 0,
-          action_required_at_risk_processed: 0,
-          action_required_at_risk_shipped: 0,
-          action_required_at_risk_delivered: 0,
-          action_required_on_time_processed: 0,
-          action_required_on_time_shipped: 0,
-          action_required_on_time_delivered: 0,
+          placed_orders: 0,
+          breached_pending_orders: 0,
           fulfilled_orders: 0,
           fulfilled_breached_orders: 0,
-          completion_rate: 0,
-          pending_orders: 0,
           at_risk_pending_orders: 0,
-          breached_pending_orders: 0,
-          avg_delay_seconds: 0,
-          avg_pending_hours: 0,
-          pending_rate: 0,
+          at_risk_orders: 0,
+          total_urgent_orders: 0,
+          total_critical_orders: 0,
+          completion_rate: 0,
+          fulfillment_rate: 0,
           last_refresh: null
         },
         stage_breakdown: [],
-        chart_data: [],
-        stage_kpis: []
+        historical_stage_breakdown: []
       });
     }
+
+    // Parameters for timeline events queries (for historical stage breakdown)
+    const useDateRange = fromDate && toDate;
 
     // Build WHERE conditions for Total Orders (placed_time filter)
     const totalOrdersWhereConditions: string[] = [];
@@ -103,9 +93,6 @@ export async function GET(request: NextRequest) {
     // Only include CONFIRMED orders by default  
     totalOrdersWhereConditions.push('confirmation_status = ?');
     totalOrdersParams.push('CONFIRMED');
-
-    // Filter out "Not Processed" orders   
-    // totalOrdersWhereConditions.push('NOT (processed_time IS NULL AND shipped_time IS NULL AND delivered_time IS NULL)');
 
     const totalOrdersWhereClause = totalOrdersWhereConditions.length > 0 ? `WHERE ${totalOrdersWhereConditions.join(' AND ')}` : '';
 
@@ -122,9 +109,6 @@ export async function GET(request: NextRequest) {
     // Only include CONFIRMED orders by default  
     statusWhereConditions.push('confirmation_status = ?');
     statusParams.push('CONFIRMED');
-
-    // Filter out "Not Processed" orders   
-    // statusWhereConditions.push('NOT (processed_time IS NULL AND shipped_time IS NULL AND delivered_time IS NULL)');
 
     const statusWhereClause = statusWhereConditions.length > 0 ? `WHERE ${statusWhereConditions.join(' AND ')}` : '';
 
@@ -198,6 +182,37 @@ export async function GET(request: NextRequest) {
 
     const slaStatusCase = getSLAStatusCase();
 
+    // Breach severity classification based on urgent_pct and critical_pct thresholds
+    const breachSeverityCase = () => {
+      return `
+        CASE
+          -- Shipped (not delivered): placed->NOW against delivered_tat
+          WHEN o.shipped_time IS NOT NULL AND o.delivered_time IS NULL THEN
+            CASE
+              WHEN TIMESTAMPDIFF(MINUTE, o.placed_time, NOW()) > (${parseTATToMinutes('tc.delivered_tat')} * tc.critical_pct / 100) THEN 'Critical'
+              WHEN TIMESTAMPDIFF(MINUTE, o.placed_time, NOW()) > (${parseTATToMinutes('tc.delivered_tat')} * tc.urgent_pct / 100) THEN 'Urgent'
+              ELSE 'None'
+            END
+          -- Processed (not shipped): placed->NOW against shipped_tat
+          WHEN o.processed_time IS NOT NULL AND o.shipped_time IS NULL THEN
+            CASE
+              WHEN TIMESTAMPDIFF(MINUTE, o.placed_time, NOW()) > (${parseTATToMinutes('tc.shipped_tat')} * tc.critical_pct / 100) THEN 'Critical'
+              WHEN TIMESTAMPDIFF(MINUTE, o.placed_time, NOW()) > (${parseTATToMinutes('tc.shipped_tat')} * tc.urgent_pct / 100) THEN 'Urgent'
+              ELSE 'None'
+            END
+          -- Not Processed: placed->now against processed_tat
+          WHEN o.processed_time IS NULL AND o.shipped_time IS NULL AND o.delivered_time IS NULL THEN
+            CASE
+              WHEN TIMESTAMPDIFF(MINUTE, o.placed_time, NOW()) > (${parseTATToMinutes('tc.processed_tat')} * tc.critical_pct / 100) THEN 'Critical'
+              WHEN TIMESTAMPDIFF(MINUTE, o.placed_time, NOW()) > (${parseTATToMinutes('tc.processed_tat')} * tc.urgent_pct / 100) THEN 'Urgent'
+              ELSE 'None'
+            END
+          ELSE 'None'
+        END
+      `;
+    };
+    const breachSeverity = breachSeverityCase();
+
     // Pending status calculation  
     const getPendingStatusCase = () => {
       return `
@@ -263,7 +278,8 @@ export async function GET(request: NextRequest) {
           ELSE 'OMS Sync'
         END as current_stage,
         ${slaStatusCase} as sla_status,
-        ${pendingStatusCase} as pending_status
+        ${pendingStatusCase} as pending_status,
+        ${breachSeverity} as breach_severity
       `;
       
       const tableQueries = tables.map(table => `
@@ -272,6 +288,77 @@ export async function GET(request: NextRequest) {
         LEFT JOIN tat_config tc ON o.brand_name COLLATE utf8mb4_unicode_ci = tc.brand_name COLLATE utf8mb4_unicode_ci 
                                  AND o.country_code COLLATE utf8mb4_unicode_ci = tc.country_code COLLATE utf8mb4_unicode_ci
         ${statusWhereClause}
+      `);
+    
+      return tableQueries.join(' UNION ALL ');
+    };
+
+    // Build query for Timeline Events (for historical stage breakdown)
+    const buildTimelineEventsQuery = () => {
+      const tableQueries = tables.map(table => `
+        -- Processed events
+        SELECT 
+          o.order_no,
+          o.brand_name,
+          o.country_code,
+          DATE(o.processed_time) as event_date,
+          'Processed' as timeline_stage,
+          -- SLA status at the time of processing
+          CASE 
+            WHEN ${parseTATToMinutes('o.processed_tat')} > ${parseTATToMinutes('tc.processed_tat')} THEN 'Breached'
+            WHEN ${parseTATToMinutes('o.processed_tat')} > (${parseTATToMinutes('tc.processed_tat')} * tc.risk_pct / 100) THEN 'At Risk'
+            ELSE 'On Time'
+          END as sla_status
+        FROM ${table} o
+        LEFT JOIN tat_config tc ON o.brand_name COLLATE utf8mb4_unicode_ci = tc.brand_name COLLATE utf8mb4_unicode_ci 
+                                 AND o.country_code COLLATE utf8mb4_unicode_ci = tc.country_code COLLATE utf8mb4_unicode_ci
+        WHERE o.processed_time IS NOT NULL 
+          ${useDateRange ? 'AND DATE(o.processed_time) BETWEEN ? AND ?' : ''}
+          AND o.confirmation_status = ?
+        
+        UNION ALL
+        
+        -- Shipped events
+        SELECT 
+          o.order_no,
+          o.brand_name,
+          o.country_code,
+          DATE(o.shipped_time) as event_date,
+          'Shipped' as timeline_stage,
+          -- SLA status at the time of shipping
+          CASE 
+            WHEN ${parseTATToMinutes('o.shipped_tat')} > ${parseTATToMinutes('tc.shipped_tat')} THEN 'Breached'
+            WHEN ${parseTATToMinutes('o.shipped_tat')} > (${parseTATToMinutes('tc.shipped_tat')} * tc.risk_pct / 100) THEN 'At Risk'
+            ELSE 'On Time'
+          END as sla_status
+        FROM ${table} o
+        LEFT JOIN tat_config tc ON o.brand_name COLLATE utf8mb4_unicode_ci = tc.brand_name COLLATE utf8mb4_unicode_ci 
+                                 AND o.country_code COLLATE utf8mb4_unicode_ci = tc.country_code COLLATE utf8mb4_unicode_ci
+        WHERE o.shipped_time IS NOT NULL 
+          ${useDateRange ? 'AND DATE(o.shipped_time) BETWEEN ? AND ?' : ''}
+          AND o.confirmation_status = ?
+        
+        UNION ALL
+        
+        -- Delivered events
+        SELECT 
+          o.order_no,
+          o.brand_name,
+          o.country_code,
+          DATE(o.delivered_time) as event_date,
+          'Delivered' as timeline_stage,
+          -- SLA status at the time of delivery
+          CASE 
+            WHEN ${parseTATToMinutes('o.delivered_tat')} > ${parseTATToMinutes('tc.delivered_tat')} THEN 'Breached'
+            WHEN ${parseTATToMinutes('o.delivered_tat')} > (${parseTATToMinutes('tc.delivered_tat')} * tc.risk_pct / 100) THEN 'At Risk'
+            ELSE 'On Time'
+          END as sla_status
+        FROM ${table} o
+        LEFT JOIN tat_config tc ON o.brand_name COLLATE utf8mb4_unicode_ci = tc.brand_name COLLATE utf8mb4_unicode_ci 
+                                 AND o.country_code COLLATE utf8mb4_unicode_ci = tc.country_code COLLATE utf8mb4_unicode_ci
+        WHERE o.delivered_time IS NOT NULL 
+          ${useDateRange ? 'AND DATE(o.delivered_time) BETWEEN ? AND ?' : ''}
+          AND o.confirmation_status = ?
       `);
     
       return tableQueries.join(' UNION ALL ');
@@ -308,51 +395,120 @@ export async function GET(request: NextRequest) {
       current_stage: string;
       sla_status: string;
       pending_status: string;
+      breach_severity: string;
     }>;
 
-    console.log(`Retrieved total orders: ${totalOrders}, status orders: ${orderData.length} from ${tables.length} tables`);
+    // Get Timeline Events data for historical stage breakdown
+    const timelineEventsQuery = buildTimelineEventsQuery();
+    
+    const timelineQueryParams: (string | number)[] = [];
+    tables.forEach(() => {
+      // Each table needs the confirmation status for each of the 3 events (processed, shipped, delivered)
+      if (useDateRange) {
+        // Add date range parameters for each event
+        timelineQueryParams.push(fromDate!, toDate!, 'CONFIRMED'); // Processed events
+        timelineQueryParams.push(fromDate!, toDate!, 'CONFIRMED'); // Shipped events  
+        timelineQueryParams.push(fromDate!, toDate!, 'CONFIRMED'); // Delivered events
+      } else {
+        // Only add confirmation status parameter
+        timelineQueryParams.push('CONFIRMED'); // Processed events
+        timelineQueryParams.push('CONFIRMED'); // Shipped events  
+        timelineQueryParams.push('CONFIRMED'); // Delivered events
+      }
+    });
+
+    console.log('Executing timeline events query for historical breakdown...');
+    const [timelineRows] = await db.execute(timelineEventsQuery, timelineQueryParams);
+    const timelineData = timelineRows as Array<{
+      order_no: string;
+      brand_name: string;
+      country_code: string;
+      event_date: string;
+      timeline_stage: string;
+      sla_status: string;
+    }>;
+
+    // Get last sync time from the most recent updated_at across all tables
+    let lastSyncTime: string | null = null;
+    if (tables.length > 0) {
+      try {
+        const lastSyncQuery = `
+          SELECT MAX(updated_at) as last_sync
+          FROM (
+            ${tables.map(table => `SELECT MAX(updated_at) as updated_at FROM ${table}`).join(' UNION ALL ')}
+          ) as all_tables
+        `;
+        const [lastSyncResult] = await db.execute(lastSyncQuery);
+        const lastSync = (lastSyncResult as Array<{ last_sync: string | null }>)[0];
+        lastSyncTime = lastSync?.last_sync || null;
+      } catch (error) {
+        console.warn('Could not get last sync time:', error);
+      }
+    }
+
+    // Get TAT configuration for selected brands and countries
+    let tatConfigs: Array<{
+      brand_name: string;
+      brand_code: string;
+      country_code: string;
+      processed_tat: string;
+      shipped_tat: string;
+      delivered_tat: string;
+      risk_pct: number;
+    }> = [];
+
+    if (tables.length > 0) {
+      try {
+        // Extract unique brand/country combinations from tables
+        const brandCountryCombinations = new Set<string>();
+        
+        tables.forEach(tableName => {
+          const parts = tableName.replace('orders_', '').split('_');
+          if (parts.length >= 2) {
+            const brandCode = parts.slice(0, -1).join('_');
+            const countryCode = parts[parts.length - 1].toUpperCase();
+            brandCountryCombinations.add(`${brandCode}_${countryCode}`);
+          }
+        });
+
+        // Get TAT configs for all brand/country combinations
+        const tatConfigQuery = `
+          SELECT 
+            brand_name,
+            brand_code,
+            country_code,
+            processed_tat,
+            shipped_tat,
+            delivered_tat,
+            risk_pct
+          FROM tat_config 
+          WHERE (brand_code, country_code) IN (
+            ${Array.from(brandCountryCombinations).map(combo => {
+              const [brandCode, countryCode] = combo.split('_');
+              return `('${brandCode}', '${countryCode}')`;
+            }).join(', ')}
+          )
+          ORDER BY brand_name, country_code
+        `;
+
+        const [tatConfigRows] = await db.execute(tatConfigQuery);
+        tatConfigs = tatConfigRows as Array<{
+          brand_name: string;
+          brand_code: string;
+          country_code: string;
+          processed_tat: string;
+          shipped_tat: string;
+          delivered_tat: string;
+          risk_pct: number;
+        }>;
+
+      } catch (error) {
+        console.warn('Could not get TAT configurations:', error);
+      }
+    }
+
+    // Calculate KPIs for v2 (simplified)
     const onTimeOrders = orderData.filter(o => o.sla_status === 'On Time').length;
-    const onRiskOrders = orderData.filter(o => o.sla_status === 'At Risk').length;
-    const breachedOrders = orderData.filter(o => o.sla_status === 'Breached').length;
-    
-    // NEW: Calculate Action Required + SLA + Stage combinations
-    const actionRequiredOrders = orderData.filter(o => o.pending_status === 'pending');
-    
-    const actionRequiredBreachedProcessed = actionRequiredOrders.filter(o => 
-      o.sla_status === 'Breached' && o.current_stage === 'Processed'
-    ).length;
-    
-    const actionRequiredBreachedShipped = actionRequiredOrders.filter(o => 
-      o.sla_status === 'Breached' && o.current_stage === 'Shipped'
-    ).length;
-    
-    const actionRequiredBreachedDelivered = actionRequiredOrders.filter(o => 
-      o.sla_status === 'Breached' && o.current_stage === 'Delivered'
-    ).length;
-    
-    const actionRequiredAtRiskProcessed = actionRequiredOrders.filter(o => 
-      o.sla_status === 'At Risk' && o.current_stage === 'Processed'
-    ).length;
-    
-    const actionRequiredAtRiskShipped = actionRequiredOrders.filter(o => 
-      o.sla_status === 'At Risk' && o.current_stage === 'Shipped'
-    ).length;
-    
-    const actionRequiredAtRiskDelivered = actionRequiredOrders.filter(o => 
-      o.sla_status === 'At Risk' && o.current_stage === 'Delivered'
-    ).length;
-    
-    const actionRequiredOnTimeProcessed = actionRequiredOrders.filter(o => 
-      o.sla_status === 'On Time' && o.current_stage === 'Processed'
-    ).length;
-    
-    const actionRequiredOnTimeShipped = actionRequiredOrders.filter(o => 
-      o.sla_status === 'On Time' && o.current_stage === 'Shipped'
-    ).length;
-    
-    const actionRequiredOnTimeDelivered = actionRequiredOrders.filter(o => 
-      o.sla_status === 'On Time' && o.current_stage === 'Delivered'
-    ).length;
     
     // Calculate fulfilled orders by SLA status
     const fulfilledOnTimeOrders = orderData.filter(o => 
@@ -366,19 +522,27 @@ export async function GET(request: NextRequest) {
     const fulfilledBreachedOrders = orderData.filter(o => 
       o.current_stage === 'Delivered' && o.sla_status === 'Breached'
     ).length;
+
+    // Calculate at risk order not delivered
+    const atRiskOrdersNotDelivered = orderData.filter(o => 
+      o.current_stage !== 'Delivered' && o.sla_status === 'At Risk'
+    ).length;
     
     // Fulfilled orders that are on time or at risk (excluding breached)
     const fulfilledOnTimeAndAtRiskOrders = fulfilledOnTimeOrders + fulfilledAtRiskOrders;
     
-    const pendingOrders = orderData.filter(o => o.pending_status === 'pending').length;
+    const breachedPendingOrders = orderData.filter(o => o.pending_status === 'pending' && o.sla_status === 'Breached').length;
+    const atRiskPendingOrders = orderData.filter(o => o.pending_status === 'pending' && o.sla_status === 'At Risk').length;
 
-    // Calculate stage breakdown
+    // Calculate stage breakdown (current state)
     const stageBreakdown = ['Not Processed', 'Processed', 'Shipped', 'Delivered'].map(stage => {
       const stageOrders = orderData.filter(o => o.current_stage === stage);
       const stageTotal = stageOrders.length;
       const stageOnTime = stageOrders.filter(o => o.sla_status === 'On Time').length;
       const stageOnRisk = stageOrders.filter(o => o.sla_status === 'At Risk').length;
       const stageBreached = stageOrders.filter(o => o.sla_status === 'Breached').length;
+      const stageUrgent = stageOrders.filter(o => o.breach_severity === 'Urgent').length;
+      const stageCritical = stageOrders.filter(o => o.breach_severity === 'Critical').length;
       
       return {
         stage,
@@ -386,112 +550,62 @@ export async function GET(request: NextRequest) {
         on_time: stageOnTime,
         on_risk: stageOnRisk,
         breached: stageBreached,
-        completion_rate: stageTotal > 0 ? Math.round((stageOnTime / stageTotal) * 100 * 10) / 10 : 0
+        urgent: stageUrgent,
+        critical: stageCritical,
+        completion_rate: stageTotal > 0 ? Math.round((stageOnTime / stageTotal) * 100 * 10) / 10 : 0,
+        fulfillment_rate: stageTotal > 0 ? Math.round((stageOnTime / stageBreached) * 100 * 10) / 10 : 0
       };
-    }); 
-
-    // Calculate chart data (group by date)
-    const chartDataMap = new Map<string, {
-      date: string;
-      total_orders: number;
-      on_time_orders: number;
-      on_risk_orders: number;
-      breached_orders: number;
-      completion_rate: number;
-    }>();
-
-    orderData.forEach(order => {
-      const date = order.order_date;
-      if (!chartDataMap.has(date)) {
-        chartDataMap.set(date, {
-          date,
-          total_orders: 0,
-          on_time_orders: 0,
-          on_risk_orders: 0,
-          breached_orders: 0,
-          completion_rate: 0
-        });
-      }
-      
-      const dayData = chartDataMap.get(date)!;
-      dayData.total_orders++;
-      
-      if (order.sla_status === 'On Time') {
-        dayData.on_time_orders++;
-      } else if (order.sla_status === 'At Risk') {
-        dayData.on_risk_orders++;
-      } else if (order.sla_status === 'Breached') {
-        dayData.breached_orders++;
-      }
-      
-      dayData.completion_rate = dayData.total_orders > 0 ? 
-        Math.round((dayData.on_time_orders / dayData.total_orders) * 100 * 10) / 10 : 0;
     });
 
-    const chartData = Array.from(chartDataMap.values()).sort((a, b) => 
-      new Date(a.date).getTime() - new Date(b.date).getTime()
-    );
+    // Totals for urgent and critical across all stages
+    const totalUrgentOrders = orderData.filter(o => o.breach_severity === 'Urgent').length;
+    const totalCriticalOrders = orderData.filter(o => o.breach_severity === 'Critical').length;
 
-    // Calculate stage KPIs (same as stage breakdown but formatted differently)
-    const stageKpis = stageBreakdown.map(stage => ({
-      stage: stage.stage,
-      total_orders: stage.total,
-      on_time_orders: stage.on_time,
-      on_risk_orders: stage.on_risk,
-      breached_orders: stage.breached,
-      completion_rate: stage.completion_rate,
-      avg_delay_seconds: 0 // Would need complex calculation, keeping simple for now
-    }));
+    // Calculate historical stage breakdown (from timeline events)
+    const historicalStageBreakdown = ['Processed', 'Shipped', 'Delivered'].map(stage => {
+      const stageEvents = timelineData.filter(o => o.timeline_stage === stage);
+      const stageTotal = stageEvents.length;
+      const stageOnTime = stageEvents.filter(o => o.sla_status === 'On Time').length;
+      const stageOnRisk = stageEvents.filter(o => o.sla_status === 'At Risk').length;
+      const stageBreached = stageEvents.filter(o => o.sla_status === 'Breached').length;
+      
+      return {
+        stage,
+        total: stageTotal,
+        on_time: stageOnTime,
+        on_risk: stageOnRisk,
+        breached: stageBreached,
+        completion_rate: stageTotal > 0 ? Math.round((stageOnTime / stageTotal) * 100 * 10) / 10 : 0,
+        fulfillment_rate: stageTotal > 0 ? Math.round((stageOnTime / stageBreached) * 100 * 10) / 10 : 0
+      };
+    });
 
     const response = {
+      tat_configs: tatConfigs,
       kpis: {
-        total_orders: totalOrders,
-        on_time_orders: onTimeOrders,
-        on_risk_orders: onRiskOrders,
-        breached_orders: breachedOrders,
-        // NEW: Action Required combinations
-        action_required_breached_processed: actionRequiredBreachedProcessed,
-        action_required_breached_shipped: actionRequiredBreachedShipped,
-        action_required_breached_delivered: actionRequiredBreachedDelivered,
-        action_required_at_risk_processed: actionRequiredAtRiskProcessed,
-        action_required_at_risk_shipped: actionRequiredAtRiskShipped,
-        action_required_at_risk_delivered: actionRequiredAtRiskDelivered,
-        action_required_on_time_processed: actionRequiredOnTimeProcessed,
-        action_required_on_time_shipped: actionRequiredOnTimeShipped,
-        action_required_on_time_delivered: actionRequiredOnTimeDelivered,
-        fulfilled_orders: fulfilledOnTimeAndAtRiskOrders, // Only on time and at risk fulfilled orders
+        placed_orders: totalOrders,
+        breached_pending_orders: breachedPendingOrders,
+        fulfilled_orders: fulfilledOnTimeAndAtRiskOrders,
         fulfilled_breached_orders: fulfilledBreachedOrders,
+        at_risk_pending_orders: atRiskPendingOrders,
+        at_risk_orders: atRiskOrdersNotDelivered,
+        total_urgent_orders: totalUrgentOrders,
+        total_critical_orders: totalCriticalOrders,
         completion_rate: totalOrders > 0 ? Math.round((onTimeOrders / totalOrders) * 100 * 10) / 10 : 0,
-        pending_orders: pendingOrders,
-        at_risk_pending_orders: orderData.filter(o => o.pending_status === 'pending' && o.sla_status === 'At Risk').length,
-        breached_pending_orders: orderData.filter(o => o.pending_status === 'pending' && o.sla_status === 'Breached').length,
-        avg_delay_seconds: 0, // Would need complex calculation
-        avg_pending_hours: 0, // Would need complex calculation
-        pending_rate: totalOrders > 0 ? Math.round((pendingOrders / totalOrders) * 100 * 10) / 10 : 0,
-        last_refresh: new Date().toISOString()
+        fulfillment_rate: totalOrders > 0? Math.round((100- (fulfilledBreachedOrders / (fulfilledOnTimeAndAtRiskOrders + fulfilledBreachedOrders)) * 100) * 10) / 10 : 0,
+        last_refresh: lastSyncTime || new Date().toISOString()
       },
       stage_breakdown: stageBreakdown,
-      chart_data: chartData,
-      stage_kpis: stageKpis
+      historical_stage_breakdown: historicalStageBreakdown
     };
-
-    console.log('Dashboard API response summary:', {
-      total_orders: response.kpis.total_orders,
-      on_time_orders: response.kpis.on_time_orders,
-      on_risk_orders: response.kpis.on_risk_orders,
-      breached_orders: response.kpis.breached_orders,
-      tables_used: tables.length,
-      stage_count: response.stage_breakdown.length,
-      chart_points: response.chart_data.length
-    });
 
     return NextResponse.json(response);
 
   } catch (error) {
-    console.error('Dashboard API error:', error);
+    console.error('Dashboard V2 API error:', error);
     return NextResponse.json(
       { error: 'Failed to fetch dashboard data', details: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }
     );
   }
-} 
+}

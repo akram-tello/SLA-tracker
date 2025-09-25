@@ -16,6 +16,7 @@ export const orderFiltersSchema = z.object({
   brand: z.string().optional(),
   country: z.string().optional(),
   sla_status: z.string().optional(),
+  severity: z.string().optional(),
   stage: z.string().optional(),
   pending_status: z.enum(['pending', 'normal']).optional(),
   from_date: z.string().optional(),
@@ -32,6 +33,8 @@ export const tatConfigSchema = z.object({
   shipped_tat: z.string().min(1),
   delivered_tat: z.string().min(1),
   risk_pct: z.number().min(1).max(100).default(80),
+  urgent_pct: z.number().min(50).max(200).default(100),
+  critical_pct: z.number().min(50).max(300).default(150),
 });
 
 export type DashboardFiltersInput = z.infer<typeof dashboardFiltersSchema>;

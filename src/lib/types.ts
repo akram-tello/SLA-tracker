@@ -3,13 +3,17 @@ export interface Order {
   order_status: string;
   shipping_status: string;
   confirmation_status: string;
-  processing_time?: Date;
+  processed_time?: Date;
   shipped_time?: Date;
   delivered_time?: Date;
   processed_tat?: string; // formatted time string (e.g., "2h 30m")
   shipped_tat?: string; // formatted time string (e.g., "2d 5h")
   delivered_tat?: string; // formatted time string (e.g., "7d 12h")
   order_date: Date;
+  order_date_local?: string; // local time string
+  processed_time_local?: string; // local time string
+  shipped_time_local?: string; // local time string
+  delivered_time_local?: string; // local time string
   brand_name: string;
   country_code: string;
   updated_at: Date;
@@ -22,6 +26,8 @@ export interface TatConfig {
   shipped_tat: string; // formatted time string (e.g., "2d 5h")
   delivered_tat: string; // formatted time string (e.g., "7d 12h")
   risk_pct: number; // percentage
+  urgent_pct: number; // Urgent threshold percentage (≥100% to <critical_pct of SLA target)
+  critical_pct: number; // Critical threshold percentage (≥critical_pct of SLA target)
   created_at: Date;
   updated_at: Date;
 }
@@ -61,6 +67,7 @@ export interface KPISummary {
   // Existing pending metrics
   pending_orders: number;
   at_risk_pending_orders: number;
+  at_risk_orders: number;
   breached_pending_orders: number;
   completion_rate: number;
   pending_rate: number;
@@ -95,6 +102,8 @@ export interface StageBreakdown {
   on_time: number;
   on_risk: number;
   breached: number;
+  urgent?: number;
+  critical?: number;
   pending: number;
   at_risk_pending: number;
   breached_pending: number;

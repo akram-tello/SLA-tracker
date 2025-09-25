@@ -43,6 +43,23 @@ export class ETLService {
   }
 
   /**
+   * Build the appropriate filter condition based on brand to exclude egift orders in sync process
+   */
+  private buildBrandFilterCondition(brand: string, country?: string): string {
+    if (brand === 'rituals') {
+      return 'e_gift_status IS NULL';
+    } else if (brand === 'vs') {
+      if (country && country.toLowerCase() === 'au') {
+        return '(is_egift_order IS NULL OR is_egift_order IN (""))';
+      } else {
+        return 'e_gift_status IS NULL';
+      }
+    } else {
+      return '(is_egift_order IS NULL OR is_egift_order IN (""))';
+    }
+  }
+
+  /**
    * Get list of available source tables with their status
    */
   async getAvailableTables(): Promise<TableInfo[]> {
@@ -63,8 +80,14 @@ export class ETLService {
 
     for (const tableName of sourceTableNames) {
       try {
-        // Get record count
-        const [countResult] = await masterDb.execute(`SELECT COUNT(*) as count FROM ${tableName}`);
+        // Extract brand and country from table name for proper filtering
+        const match = tableName.match(/^(.+)_([a-z]{2})_orders$/);
+        const brand = match ? this.mapBrandCode(match[1]) : 'unknown';
+        const country = match ? match[2] : '';
+        const filterCondition = this.buildBrandFilterCondition(brand, country);
+        
+        // Get record count for confirmed orders from July 1st, 2024 onward
+        const [countResult] = await masterDb.execute(`SELECT COUNT(*) as count FROM ${tableName} WHERE confirmation_status = 'CONFIRMED' AND order_status != 'FAILED' AND payment_status = 'PAID' AND order_created_date_time >= '2025-07-01 00:00:00' AND ${filterCondition}`);
         const count = (countResult as { count: number }[])[0].count;
         
         // Check if target table exists
@@ -176,17 +199,18 @@ export class ETLService {
       await this.ensureTargetTable(targetTable, analyticsDb);
       
       // Get available columns
-      const availableColumns = await this.getTableColumns(sourceTable, masterDb);
-      console.log(`Available columns in ${sourceTable}:`, availableColumns);
+      //const availableColumns = await this.getTableColumns(sourceTable, masterDb);
+      //console.log(`Available columns in ${sourceTable}:`, availableColumns);
       
       // Get related tables for payment and shipment data
       const { paymentTable, shipmentTable } = await this.getRelatedTables(brand, country, masterDb);
       
       console.log(`Related tables found - Payment: ${paymentTable}, Shipment: ${shipmentTable}`);
       
-              // Get total count of confirmed orders only
-        const [countResult] = await masterDb.execute(`SELECT COUNT(*) as total FROM ${sourceTable} WHERE confirmation_status = 'CONFIRMED'`);
-        const totalRecords = (countResult as { total: number }[])[0].total;
+      // Get total count of confirmed orders from July 1st, 2024 onward only
+      const filterCondition = this.buildBrandFilterCondition(brand, country);
+      const [countResult] = await masterDb.execute(`SELECT COUNT(*) as total FROM ${sourceTable} WHERE confirmation_status = 'CONFIRMED' AND order_status != 'FAILED' AND payment_status = 'PAID' AND order_created_date_time >= '2025-07-01 00:00:00' AND ${filterCondition}`);
+      const totalRecords = (countResult as { total: number }[])[0].total;
       
       console.log(`Total records in ${sourceTable}: ${totalRecords}`);
 
@@ -207,7 +231,21 @@ export class ETLService {
         analyticsDb
       );
 
-             console.log(`Successfully processed ${processed} records for ${brand}_${country}`);
+      console.log(`Successfully processed ${processed} records for ${brand}_${country}`);
+       
+      // Delete CANCELLED orders from analytics DB
+      const deletedCount = await this.deleteCancelledOrders(
+        sourceTable,
+        targetTable,
+        brand,
+        country,
+        masterDb,
+        analyticsDb
+      );
+      
+      if (deletedCount > 0) {
+        console.log(`Deleted ${deletedCount} cancelled orders from ${targetTable}`);
+      }
        
        // Generate daily summary for dashboard
        await this.generateDailySummary(targetTable, brand, country, analyticsDb);
@@ -443,6 +481,58 @@ export class ETLService {
   }
 
   /**
+   * Delete cancelled orders from analytics DB
+   */
+  private async deleteCancelledOrders(
+    sourceTable: string,
+    targetTable: string,
+    brand: string,
+    country: string,
+    masterDb: Connection,
+    analyticsDb: Connection
+  ): Promise<number> {
+    try {
+      // Get list of cancelled order numbers from source table
+      const filterCondition = this.buildBrandFilterCondition(brand, country);
+      const cancelledOrdersQuery = `
+        SELECT order_no 
+        FROM ${sourceTable} 
+        WHERE order_status = 'CANCELLED'
+        AND ${filterCondition}
+      `;
+      
+      const [cancelledRows] = await masterDb.execute(cancelledOrdersQuery);
+      const cancelledOrders = cancelledRows as { order_no: string }[];
+      
+      if (cancelledOrders.length === 0) {
+        return 0;
+      }
+      
+      // Delete cancelled orders from analytics table in batches for performance
+      const batchSize = 100;
+      let totalDeleted = 0;
+      
+      for (let i = 0; i < cancelledOrders.length; i += batchSize) {
+        const batch = cancelledOrders.slice(i, i + batchSize);
+        const orderNumbers = batch.map(row => row.order_no);
+        const placeholders = orderNumbers.map(() => '?').join(', ');
+        
+        const deleteQuery = `DELETE FROM ${targetTable} WHERE order_no IN (${placeholders})`;
+        const [result] = await analyticsDb.execute(deleteQuery, orderNumbers);
+        
+        const affectedRows = (result as { affectedRows?: number })?.affectedRows || 0;
+        totalDeleted += affectedRows;
+      }
+      
+      return totalDeleted;
+      
+    } catch (error) {
+      console.error(`Error deleting cancelled orders from ${targetTable}:`, error);
+      return 0;
+    }
+  }
+
+  /**
    * Process data in batches with joins for payment and shipment data
    */
   private async processBatchesWithJoins(
@@ -465,10 +555,15 @@ export class ETLService {
       const selectFields = this.buildSelectFieldsWithJoins(brand, country, sourceTable, paymentTable, shipmentTable);
       const joinClauses = this.buildJoinClauses(sourceTable, paymentTable, shipmentTable);
       
+      const filterCondition = this.buildBrandFilterCondition(brand, country);
       const batchQuery = `
         SELECT ${selectFields}
         ${joinClauses}
         WHERE o.confirmation_status = 'CONFIRMED'
+        AND o.order_status != 'FAILED'
+        AND o.payment_status = 'PAID'
+        AND o.order_created_date_time >= '2025-07-01 00:00:00'
+        AND ${filterCondition}
         ORDER BY o.order_created_date_time DESC
         LIMIT ${batchSize} OFFSET ${offset}
       `;
@@ -552,7 +647,9 @@ export class ETLService {
           risk_pct: 80,             // 80% risk threshold default
           pending_not_processed_time: '6h',  // 6 hours default
           pending_processed_time: '24h',     // 24 hours default
-          pending_shipped_time: '3d'         // 3 days default
+          pending_shipped_time: '3d',        // 3 days default
+          critical_pct: 150,                // 150% of SLA target -> Critical
+          urgent_pct: 100                   // 100% to <critical% of SLA target -> Urgent
         };
         
         // Log the fallback usage for monitoring
@@ -562,7 +659,7 @@ export class ETLService {
       }
       
       const { processed_tat, shipped_tat, delivered_tat, risk_pct, 
-              pending_not_processed_time, pending_processed_time, pending_shipped_time } = tatConfig;
+              pending_not_processed_time, pending_processed_time, pending_shipped_time, critical_pct, urgent_pct } = tatConfig;
       
       // Validate TAT values before processing
       try {

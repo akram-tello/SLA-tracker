@@ -2,14 +2,6 @@
 
 Monitor order processing performance across brands and countries with real-time SLA tracking and analytics.
 
-## Features
-
-- 📊 **Real-time Dashboard**: Monitor SLA performance across multiple brands and countries
-- 🔄 **Automated ETL Sync**: Hourly data synchronization from master database
-- 📈 **Performance Analytics**: Track on-time, at-risk, and breached orders
-- 🎯 **SLA Monitoring**: Real-time status updates with configurable TAT thresholds
-- 📱 **Responsive Design**: Modern UI built with Next.js and Tailwind CSS
-
 ## Quick Start
 
 ### Prerequisites

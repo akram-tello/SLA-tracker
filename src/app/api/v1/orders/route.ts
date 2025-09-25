@@ -1,19 +1,27 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAnalyticsDb } from '@/lib/db';
 import { orderFiltersSchema } from '@/lib/validation';
+import { formatToMasterDbTime, formatToLocalTimeWithOffset } from '@/lib/utils';
 
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
+    
+    // Handle export-limit separately to bypass validation constraints
+    const exportLimit = searchParams.get('export-limit');
+    const pageLimit = searchParams.get('limit') || '20';
+    const finalExportLimit = exportLimit ? Math.min(parseInt(exportLimit), 10000).toString() : pageLimit;
+    
     const filters = orderFiltersSchema.parse({
       page: searchParams.get('page') || '1',
-      limit: searchParams.get('limit') || '20',
+      limit: exportLimit ? '1' : pageLimit,
       order_status: searchParams.get('order_status') || undefined,
       risk_flag: searchParams.get('risk_flag') || undefined,
       order_no: searchParams.get('order_no') || undefined,
       brand: searchParams.get('brand') || undefined,
       country: searchParams.get('country') || undefined,
       sla_status: searchParams.get('sla_status') || undefined,
+      severity: searchParams.get('severity') || undefined,
       stage: searchParams.get('stage') || undefined,
       pending_status: searchParams.get('pending_status') || undefined,
       from_date: searchParams.get('from_date') || undefined,
@@ -22,6 +30,11 @@ export async function GET(request: NextRequest) {
       fulfilment_status: searchParams.get('fulfilment_status') || undefined,
       kpi_mode: searchParams.get('kpi_mode') || undefined,
     });
+
+    // Override limit for export functionality
+    if (exportLimit) {
+      filters.limit = parseInt(finalExportLimit);
+    }
 
     const db = await getAnalyticsDb();
     
@@ -264,6 +277,43 @@ export async function GET(request: NextRequest) {
 
     const pendingStatusCase = getPendingStatusCase();
 
+    //! Compute breach severity strictly for pending orders based on stage-specific TAT thresholds
+    // - Not Synced to OMS: placed->NOW vs processed_tat
+    // - OMS Synced (Processed, not shipped): placed->NOW vs shipped_tat
+    // - Shipped (not delivered): placed->NOW vs delivered_tat
+    // - Delivered: always 'None'
+    const breachSeverityCase = () => {
+      return `
+        CASE
+          -- Delivered: no severity
+          WHEN o.delivered_time IS NOT NULL THEN 'None'
+          -- Shipped (not delivered): placed->NOW against delivered_tat
+          WHEN o.shipped_time IS NOT NULL AND o.delivered_time IS NULL THEN
+            CASE
+              WHEN TIMESTAMPDIFF(MINUTE, o.placed_time, NOW()) > (${parseTATToMinutes('tc.delivered_tat')} * tc.critical_pct / 100) THEN 'Critical'
+              WHEN TIMESTAMPDIFF(MINUTE, o.placed_time, NOW()) > (${parseTATToMinutes('tc.delivered_tat')} * tc.urgent_pct / 100) THEN 'Urgent'
+              ELSE 'None'
+            END
+          -- Processed (not shipped): placed->NOW against shipped_tat
+          WHEN o.processed_time IS NOT NULL AND o.shipped_time IS NULL THEN
+            CASE
+              WHEN TIMESTAMPDIFF(MINUTE, o.placed_time, NOW()) > (${parseTATToMinutes('tc.shipped_tat')} * tc.critical_pct / 100) THEN 'Critical'
+              WHEN TIMESTAMPDIFF(MINUTE, o.placed_time, NOW()) > (${parseTATToMinutes('tc.shipped_tat')} * tc.urgent_pct / 100) THEN 'Urgent'
+              ELSE 'None'
+            END
+          -- Not Processed: placed->NOW against processed_tat
+          WHEN o.processed_time IS NULL AND o.shipped_time IS NULL AND o.delivered_time IS NULL THEN
+            CASE
+              WHEN TIMESTAMPDIFF(MINUTE, o.placed_time, NOW()) > (${parseTATToMinutes('tc.processed_tat')} * tc.critical_pct / 100) THEN 'Critical'
+              WHEN TIMESTAMPDIFF(MINUTE, o.placed_time, NOW()) > (${parseTATToMinutes('tc.processed_tat')} * tc.urgent_pct / 100) THEN 'Urgent'
+              ELSE 'None'
+            END
+          ELSE 'None'
+        END
+      `;
+    };
+    const breachSeverity = breachSeverityCase();
+
     // Query ALL tables using UNION to get complete data set
     const buildUnionQuery = (queryType: 'count' | 'data', limit?: number, offset?: number) => {
       const baseSelectFields = queryType === 'count' ? 'COUNT(*) as count' : `
@@ -275,6 +325,7 @@ export async function GET(request: NextRequest) {
         tc.processed_tat as config_processed_tat, tc.shipped_tat as config_shipped_tat, tc.delivered_tat as config_delivered_tat,
         ${slaStatusCase} as sla_status,
         ${pendingStatusCase} as pending_status,
+        ${breachSeverity} as breach_severity,
         CASE 
           WHEN o.delivered_time IS NOT NULL THEN 'Delivered'
           WHEN o.shipped_time IS NOT NULL AND o.delivered_time IS NULL THEN 'Shipped'
@@ -313,6 +364,7 @@ export async function GET(request: NextRequest) {
       
       // Handle comma-separated SLA status values (e.g., "On Time,At Risk")
       let slaFilter = '';
+      let severityFilter = '';
       if (filters.sla_status) {
         const slaValues = filters.sla_status.split(',').map(s => s.trim());
         if (slaValues.length === 1) {
@@ -320,6 +372,15 @@ export async function GET(request: NextRequest) {
         } else {
           const placeholders = slaValues.map(() => '?').join(',');
           slaFilter = `AND (${slaStatusCase}) IN (${placeholders})`;
+        }
+      }
+      if (filters.severity) {
+        const sevValues = filters.severity.split(',').map(s => s.trim());
+        if (sevValues.length === 1) {
+          severityFilter = `AND (${breachSeverity}) = ?`;
+        } else {
+          const placeholders = sevValues.map(() => '?').join(',');
+          severityFilter = `AND (${breachSeverity}) IN (${placeholders})`;
         }
       }
       
@@ -333,6 +394,7 @@ export async function GET(request: NextRequest) {
         ${whereClause}
         ${slaFilter}
         ${pendingFilter}
+        ${severityFilter}
       `);
       
       let unionQuery = tableQueries.join(' UNION ALL ');
@@ -363,6 +425,10 @@ export async function GET(request: NextRequest) {
       if (filters.pending_status) {
         countParams.push(filters.pending_status);
       }
+      if (filters.severity) {
+        const sevValues = filters.severity.split(',').map(s => s.trim());
+        countParams.push(...sevValues);
+      }
     });
 
     const [countRows] = await db.execute(countQuery, countParams);
@@ -382,32 +448,45 @@ export async function GET(request: NextRequest) {
       if (filters.pending_status) {
         dataParams.push(filters.pending_status);
       }
+      if (filters.severity) {
+        const sevValues = filters.severity.split(',').map(s => s.trim());
+        dataParams.push(...sevValues);
+      }
     });
 
     const [dataRows] = await db.execute(dataQuery, dataParams);
 
-    const orders = (dataRows as Record<string, string | number | Date | null>[]).map(row => ({
-      order_no: String(row.order_no || ''),
-      order_status: String(row.order_status || ''),
-      shipping_status: String(row.shipping_status || ''),
-      confirmation_status: String(row.confirmation_status || ''),
-      order_date: row.order_date,
-      processed_time: row.processed_time,
-      shipped_time: row.shipped_time,
-      delivered_time: row.delivered_time,
-      processed_tat: row.processed_tat ? String(row.processed_tat) : null,
-      shipped_tat: row.shipped_tat ? String(row.shipped_tat) : null,
-      delivered_tat: row.delivered_tat ? String(row.delivered_tat) : null,
-      brand_name: String(row.brand_name || ''),
-      country_code: String(row.country_code || ''),
-              current_stage: String(row.current_stage || 'OMS Sync'),
-      sla_status: String(row.sla_status || 'Unknown'),
-      pending_status: String(row.pending_status || 'normal'),
-      pending_hours: Number(row.pending_hours || 0),
-      config_processed_tat: row.config_processed_tat ? String(row.config_processed_tat) : null,
-      config_shipped_tat: row.config_shipped_tat ? String(row.config_shipped_tat) : null,
-      config_delivered_tat: row.config_delivered_tat ? String(row.config_delivered_tat) : null,
-    }));
+    const orders = (dataRows as Record<string, string | number | Date | null>[]).map(row => {
+      const countryCode = String(row.country_code || '');
+      
+      return {
+        order_no: String(row.order_no || ''),
+        order_status: String(row.order_status || ''),
+        shipping_status: String(row.shipping_status || ''),
+        confirmation_status: String(row.confirmation_status || ''),
+        order_date: formatToMasterDbTime(row.order_date as Date) || row.order_date,
+        order_date_local: formatToLocalTimeWithOffset(row.order_date as Date, countryCode),
+        processed_time: formatToMasterDbTime(row.processed_time as Date) || row.processed_time,
+        processed_time_local: formatToLocalTimeWithOffset(row.processed_time as Date, countryCode),
+        shipped_time: formatToMasterDbTime(row.shipped_time as Date) || row.shipped_time,
+        shipped_time_local: formatToLocalTimeWithOffset(row.shipped_time as Date, countryCode),
+        delivered_time: formatToMasterDbTime(row.delivered_time as Date) || row.delivered_time,
+        delivered_time_local: formatToLocalTimeWithOffset(row.delivered_time as Date, countryCode),
+        processed_tat: row.processed_tat ? String(row.processed_tat) : null,
+        shipped_tat: row.shipped_tat ? String(row.shipped_tat) : null,
+        delivered_tat: row.delivered_tat ? String(row.delivered_tat) : null,
+        brand_name: String(row.brand_name || ''),
+        country_code: String(row.country_code || ''),
+        current_stage: String(row.current_stage || 'OMS Sync'),
+        sla_status: String(row.sla_status || 'Unknown'),
+        breach_severity: String(row.breach_severity || 'None'),
+        pending_status: String(row.pending_status || 'normal'),
+        pending_hours: Number(row.pending_hours || 0),
+        config_processed_tat: row.config_processed_tat ? String(row.config_processed_tat) : null,
+        config_shipped_tat: row.config_shipped_tat ? String(row.config_shipped_tat) : null,
+        config_delivered_tat: row.config_delivered_tat ? String(row.config_delivered_tat) : null,
+      };
+    });
 
     return NextResponse.json({
       orders,

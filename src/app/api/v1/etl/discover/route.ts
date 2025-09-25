@@ -15,6 +15,12 @@ const BRAND_CONFIGS: BrandConfig[] = [
     brand_name: 'Bath & Body Works',
     source_table_pattern: 'bbw_%_orders',
     target_table_pattern: 'orders_bbw_%'
+  },
+  {
+    brand_code: 'rituals',
+    brand_name: 'Rituals',
+    source_table_pattern: 'rituals_%_orders',
+    target_table_pattern: 'orders_rituals_%'
   }
 ];
 
@@ -73,7 +79,7 @@ async function discoverTables(): Promise<TableDiscovery[]> {
     // Get record count from source table (master DB)
     let masterRecordCount = 0;
     try {
-      const [countResult] = await masterDb.execute(`SELECT COUNT(*) as count FROM ${sourceTable}`);
+      const [countResult] = await masterDb.execute(`SELECT COUNT(*) as count FROM ${sourceTable} WHERE confirmation_status = 'CONFIRMED'`);
       masterRecordCount = (countResult as { count: number }[])[0].count;
     } catch (error) {
       console.warn(`Could not get record count for ${sourceTable}:`, error);
